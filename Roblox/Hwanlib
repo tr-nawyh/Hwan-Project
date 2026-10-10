@@ -1,0 +1,2879 @@
+local Hwan = {}
+Hwan.__index = Hwan
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local UserInputService = game:GetService("UserInputService")
+local TweenService = game:GetService("TweenService")
+local Workspace = game:GetService("Workspace")
+local HttpService = game:GetService("HttpService")
+local TextService = game:GetService("TextService")
+local LocalPlayer = Players.LocalPlayer
+local THEMES = {Dark={Main=Color3.fromRGB(18, 18, 18),TabBg=Color3.fromRGB(40, 40, 40),Accent=Color3.fromRGB(245, 245, 245),Text=Color3.fromRGB(235, 235, 235),InfoBg=Color3.fromRGB(10, 10, 10),InfoInner=Color3.fromRGB(18, 18, 18),Btn=Color3.fromRGB(50, 50, 50),ToggleBg=Color3.fromRGB(80, 80, 80),ControlBg=Color3.fromRGB(80, 80, 80),ElementBg=Color3.fromRGB(40, 40, 40)}}
+local function getGuiParent()
+	if (type(gethui) == "function") then
+		local ok, g = pcall(gethui)
+		if (ok and g) then
+			return g
+		end
+	end
+	if (type(get_hidden_gui) == "function") then
+		local ok, g = pcall(get_hidden_gui)
+		if (ok and g) then
+			return g
+		end
+	end
+	if (LocalPlayer and LocalPlayer:FindFirstChild("PlayerGui")) then
+		return LocalPlayer.PlayerGui
+	end
+	return game:GetService("CoreGui")
+end
+local function protectGui(g)
+	if ((type(syn) == "table") and (type(syn.protect_gui) == "function")) then
+		pcall(syn.protect_gui, g)
+	end
+	if (type(protect_gui) == "function") then
+		pcall(protect_gui, g)
+	end
+end
+local function new(class, props)
+	local inst = Instance.new(class)
+	if props then
+		if (type(props) == "table") then
+			for k, v in pairs(props) do
+				pcall(function()
+					inst[k] = v
+				end)
+			end
+		else
+			pcall(function()
+				inst.Parent = props
+			end)
+		end
+	end
+	return inst
+end
+local function safeDestroy(obj)
+	pcall(function()
+		if (obj and obj.Parent) then
+			obj:Destroy()
+		end
+	end)
+end
+local function tween(inst, props, time, style, dir)
+	time = time or 0.18
+	style = style or Enum.EasingStyle.Quad
+	dir = dir or Enum.EasingDirection.Out
+	pcall(function()
+		if (not inst or not inst.Parent) then
+			return
+		end
+		TweenService:Create(inst, TweenInfo.new(time, style, dir), props):Play()
+	end)
+end
+local function clampVal(v, a, b)
+	if (v < a) then
+		return a
+	end
+	if (v > b) then
+		return b
+	end
+	return v
+end
+local function brightenColor(c, amt)
+	amt = amt or 0.06
+	return Color3.new(clampVal(c.R + amt, 0, 1), clampVal(c.G + amt, 0, 1), clampVal(c.B + amt, 0, 1))
+end
+local function darkenColor(c, amt)
+	amt = amt or 0.08
+	return Color3.new(clampVal(c.R - amt, 0, 1), clampVal(c.G - amt, 0, 1), clampVal(c.B - amt, 0, 1))
+end
+local function color3ToHex(color)
+	if not color then
+		return "#FFFFFF"
+	end
+	local r = math.floor(color.R * 255)
+	local g = math.floor(color.G * 255)
+	local b = math.floor(color.B * 255)
+	return string.format("#%02X%02X%02X", r, g, b)
+end
+local function try_http_get(url)
+	if (not url or (type(url) ~= "string")) then
+		return nil
+	end
+	local ok, res = pcall(function()
+		if (game and game.HttpGet) then
+			return game:HttpGet(url)
+		end
+		return nil
+	end)
+	if (ok and res and (type(res) == "string") and (res ~= "")) then
+		return res
+	end
+	if (HttpService and HttpService.GetAsync) then
+		ok, res = pcall(function()
+			return HttpService:GetAsync(url)
+		end)
+		if (ok and res and (type(res) == "string") and (res ~= "")) then
+			return res
+		end
+	end
+	return nil
+end
+local function writeFileSafe(path, data)
+	if writefile then
+		pcall(writefile, path, data)
+	end
+end
+local function readFileSafe(path)
+	if isfile then
+		local ok, res = pcall(readfile, path)
+		if ok then
+			return res
+		end
+	end
+	return nil
+end
+local HWIDFunctions = {}
+HWIDFunctions.GetHardwareID = function(self)
+	local hwid = ""
+	pcall(function()
+		hwid = game:GetService("RbxAnalyticsService"):GetClientId()
+	end)
+	return hwid
+end
+HWIDFunctions.GetEncryptedHWID = function(self)
+	local hwid = self:GetHardwareID()
+	if (hwid == "") then
+		return "HWUNKNOWN"
+	end
+	if (#hwid > 36) then
+		hwid = hwid:sub(1, 36)
+	end
+	local halfLength = math.floor(#hwid / 2)
+	local firstHalf = hwid:sub(1, halfLength)
+	local secondHalf = hwid:sub(halfLength + 1)
+	local function stringToNumber(str)
+		local total = 0
+		for i = 1, #str do
+			total = total + (string.byte(str, i) * (i ^ 2))
+		end
+		return total
+	end
+	local firstNum = stringToNumber(firstHalf)
+	local secondNum = stringToNumber(secondHalf)
+	local sqrtPart = math.sqrt(firstNum)
+	sqrtPart = math.floor((sqrtPart * 100) + 0.5) / 100
+	local numPart = secondNum % 1000000
+	local encrypted = string.format("%.2f-%06d", sqrtPart, numPart)
+	return encrypted
+end
+Hwan.HWID = HWIDFunctions
+local DEFAULT = {Width=300,Height=459,Title="HWAN HUB",Subtitle="Subtitle",ShowToggleIcon=true,AntiAFK=true,HWIDSystem=true,HWIDSettings={Title="HWAN HUB",Subtitle="VERIFY SYSTEM",FileName="hwanhub_status",SaveStatus=true,HWIDLock=true,HWIDUrl="https://raw.githubusercontent.com/hwanthichhat/library/main/hwanlibs/whitelist",AutoRefresh=true,RefreshInterval=5},Theme="Dark",Corner=UDim.new(0, 12),ToggleKey=Enum.KeyCode.LeftAlt,ConfigurationSaving={Enabled=false,FolderName=nil,FileName=nil}}
+Hwan.CreateWindow = function(self, opts)
+	opts = opts or {}
+	if _G.Hwan then
+		pcall(function()
+			if _G.Hwan.conns then
+				for i = #_G.Hwan.conns, 1, -1 do
+					local c = _G.Hwan.conns[i]
+					if (c and c.Disconnect) then
+						pcall(function()
+							c:Disconnect()
+						end)
+					end
+				end
+			end
+			if (safeDestroy and (type(safeDestroy) == "function")) then
+				pcall(function()
+					safeDestroy(_G.Hwan.screenGui)
+				end)
+			else
+				pcall(function()
+					if (_G.Hwan.screenGui and _G.Hwan.screenGui.Parent) then
+						_G.Hwan.screenGui:Destroy()
+					end
+				end)
+			end
+		end)
+		_G.Hwan = nil
+	end
+	local cfg = {}
+	for k, v in pairs(DEFAULT) do
+		if (type(v) == "table") then
+			cfg[k] = {}
+			for kk, vv in pairs(v) do
+				cfg[k][kk] = vv
+			end
+		else
+			cfg[k] = v
+		end
+	end
+	if (type(opts) == "string") then
+		cfg.Title = opts
+	elseif (type(opts) == "table") then
+		for k, v in pairs(opts) do
+			if ((k == "Theme") and (type(v) == "table")) then
+			elseif ((k == "Theme") and (type(v) == "string")) then
+				cfg.Theme = v
+			elseif (k == "HWIDSettings") then
+				cfg.HWIDSystem = true
+				if (type(v) == "table") then
+					for kk, vv in pairs(v) do
+						if (cfg.HWIDSettings[kk] ~= nil) then
+							cfg.HWIDSettings[kk] = vv
+						end
+					end
+				end
+			else
+				cfg[k] = v
+			end
+		end
+	end
+	if (type(cfg.Theme) == "string") then
+		local tname = cfg.Theme
+		if THEMES[tname] then
+			cfg.Theme = {}
+			for kk, vv in pairs(THEMES[tname]) do
+				cfg.Theme[kk] = vv
+			end
+		else
+			cfg.Theme = {}
+			for kk, vv in pairs(THEMES.Dark) do
+				cfg.Theme[kk] = vv
+			end
+		end
+	elseif (type(cfg.Theme) == "table") then
+		local merged = {}
+		for kk, vv in pairs(THEMES.Dark) do
+			merged[kk] = vv
+		end
+		for kk, vv in pairs(cfg.Theme) do
+			merged[kk] = vv
+		end
+		cfg.Theme = merged
+	else
+		cfg.Theme = {}
+		for kk, vv in pairs(THEMES.Dark) do
+			cfg.Theme[kk] = vv
+		end
+	end
+	if ((type(opts) == "table") and (opts.HWIDSystem ~= nil)) then
+		cfg.HWIDSystem = opts.HWIDSystem
+	end
+	cfg.HWIDSettings = cfg.HWIDSettings or {}
+	cfg.HWIDSettings.Title = cfg.HWIDSettings.Title or (cfg.Title .. " | HWID System")
+	cfg.HWIDSettings.FileName = cfg.HWIDSettings.FileName or (cfg.Title .. "_hwid.txt")
+	cfg.HWIDSettings.SaveStatus = cfg.HWIDSettings.SaveStatus == true
+	cfg.HWIDSettings.HWIDLock = cfg.HWIDSettings.HWIDLock == true
+	cfg.HWIDSettings.AutoRefresh = cfg.HWIDSettings.AutoRefresh == true
+	cfg.HWIDSettings.RefreshInterval = cfg.HWIDSettings.RefreshInterval or 10
+	cfg.HWIDSettings.HWIDList = cfg.HWIDSettings.HWIDList or {}
+	local function dbgWarn(...)
+		if (cfg and cfg.Debug) then
+			warn("[Hwan Debug]", ...)
+		end
+	end
+	local conns = {}
+	local function addConn(c)
+		if c then
+			table.insert(conns, c)
+		end
+	end
+	local host = getGuiParent()
+	local screenGui = new("ScreenGui")
+	screenGui.Name = (cfg.Title:gsub("%s+", "") or "Hwan") .. "_GUI"
+	screenGui.ResetOnSpawn = false
+	screenGui.Parent = host
+	protectGui(screenGui)
+	local refs = {}
+	local Frame = new("Frame", {Parent=screenGui,Name="Main",Size=UDim2.new(0, cfg.Width, 0, 0),Position=UDim2.new(0, 16, 0.5, -cfg.Height / 2),BackgroundColor3=cfg.Theme.Main,BorderSizePixel=0,Active=true})
+	refs.Frame = Frame
+	new("UICorner", {Parent=Frame,CornerRadius=cfg.Corner})
+	local frameStroke = new("UIStroke", {Parent=Frame})
+	frameStroke.Thickness = 2
+	frameStroke.Transparency = 0.8
+	frameStroke.Color = Color3.fromRGB(255, 255, 255)
+	local TitleFrame = new("Frame", {Parent=Frame,Size=UDim2.new(1, -16, 0, 100),Position=UDim2.new(0, 8, 0, 8),BackgroundTransparency=1})
+	local TitleMain = new("TextLabel", {Parent=TitleFrame,Size=UDim2.new(1, 0, 0, 54),Position=UDim2.new(0, 0, 0, 4),BackgroundTransparency=1,Text=string.upper(cfg.Title),Font=Enum.Font.LuckiestGuy,TextSize=44,TextYAlignment=Enum.TextYAlignment.Center,TextXAlignment=Enum.TextXAlignment.Center,TextStrokeTransparency=0,TextStrokeColor3=Color3.fromRGB(0, 0, 0),TextTransparency=0,TextColor3=cfg.Theme.Accent,ZIndex=70,ClipsDescendants=false})
+	refs.TitleMain = TitleMain
+	local titleGrad = new("UIGradient", {Parent=TitleMain})
+	titleGrad.Color = ColorSequence.new({ColorSequenceKeypoint.new(0, Color3.fromRGB(255, 255, 255)),ColorSequenceKeypoint.new(0.5, Color3.fromRGB(120, 120, 120)),ColorSequenceKeypoint.new(1, Color3.fromRGB(0, 0, 0))})
+	titleGrad.Rotation = 0
+	local TitleSub = new("TextLabel", {Parent=TitleFrame,Size=UDim2.new(1, 0, 0, 20),Position=UDim2.new(0, 0, 0, 52),BackgroundTransparency=1,Text=tostring(cfg.Subtitle or ""),Font=Enum.Font.FredokaOne,TextSize=20,TextYAlignment=Enum.TextYAlignment.Top,TextXAlignment=Enum.TextXAlignment.Center,TextColor3=Color3.fromRGB(255, 255, 255),ZIndex=70})
+	local TabsFrame = new("Frame", {Parent=TitleFrame,Size=UDim2.new(1, 0, 0.01, 36),Position=UDim2.new(0, 0, 0, 85),BackgroundTransparency=1})
+	local TabsHolder = new("Frame", {Parent=TabsFrame,Size=UDim2.new(1, 0, 1, 0),Position=UDim2.new(0, 0, 0, 0),BackgroundTransparency=1})
+	new("UICorner", {Parent=TabsHolder,CornerRadius=UDim.new(0, 8)})
+	local dividerY = 130
+	local MainDivider = new("Frame", {Parent=Frame,Name="MainDivider",Size=UDim2.new(1, -16, 0.004, 1),Position=UDim2.new(0, 8, 0, dividerY),BackgroundColor3=cfg.Theme.TabBg,BorderSizePixel=0})
+	refs.MainDivider = MainDivider
+	MainDivider.ClipsDescendants = true
+	local dividerGrad = new("UIGradient", {Parent=MainDivider})
+	dividerGrad.Color = ColorSequence.new({ColorSequenceKeypoint.new(0, Color3.fromRGB(255, 255, 255)),ColorSequenceKeypoint.new(1, Color3.fromRGB(200, 200, 200))})
+	dividerGrad.Rotation = 0
+	local dividerColorTimer = 0
+	local dividerColorFreq = 0.7
+	local dividerColorMin = Color3.fromRGB(200, 200, 200)
+	local dividerColorMax = Color3.fromRGB(255, 255, 255)
+	local divColorConn = RunService.Heartbeat:Connect(function(dt)
+		pcall(function()
+			dividerColorTimer = dividerColorTimer + dt
+			local t = (math.sin(dividerColorTimer * 2 * math.pi * dividerColorFreq) + 1) / 2
+			local r = dividerColorMin:Lerp(dividerColorMax, t)
+			dividerGrad.Color = ColorSequence.new({ColorSequenceKeypoint.new(0, r),ColorSequenceKeypoint.new(1, r)})
+		end)
+	end)
+	addConn(divColorConn)
+	local InfoBar = new("Frame", {Parent=screenGui,Name="InfoBar",Size=UDim2.new(0, 330, 0, 36),Position=UDim2.new(1, -376, 0, 16),BackgroundColor3=cfg.Theme.InfoBg,BorderSizePixel=0,ZIndex=50})
+	refs.InfoBar = InfoBar
+	new("UICorner", {Parent=InfoBar,CornerRadius=UDim.new(0, 8)})
+	InfoBar.BackgroundTransparency = 0.06
+	local InfoBarStroke = new("UIStroke", {Parent=InfoBar})
+	InfoBarStroke.Thickness = 2
+	InfoBarStroke.Transparency = 0.8
+	InfoBarStroke.Color = Color3.fromRGB(255, 255, 255)
+	local InfoInner = new("Frame", {Parent=InfoBar,Size=UDim2.new(1, -8, 1, -8),Position=UDim2.new(0, 4, 0, 4),BackgroundColor3=cfg.Theme.InfoInner,BorderSizePixel=0,ZIndex=51})
+	new("UICorner", {Parent=InfoInner,CornerRadius=UDim.new(0, 6)})
+	local InfoText = new("TextLabel", {Parent=InfoInner,Size=UDim2.new(1, -4, 1, 0),Position=UDim2.new(0, 2, 0, 0),BackgroundTransparency=1,Font=Enum.Font.SourceSansBold,TextSize=16,TextXAlignment=Enum.TextXAlignment.Center,TextYAlignment=Enum.TextYAlignment.Center,TextColor3=cfg.Theme.Text,Text="TIME: 00:00:00 | FPS: 0 | PING: 0 ms (0%CV)",ZIndex=52})
+	refs.InfoText = InfoText
+	local HwanBtn = new("Frame", {Parent=screenGui,Name="HwanBtn",Size=UDim2.new(0, 56, 0, 56),Position=UDim2.new(0, 90, 0, 64),BackgroundColor3=cfg.Theme.InfoInner,BorderSizePixel=0,ZIndex=1000,Active=true,Visible=(cfg.ShowToggleIcon ~= false)})
+	refs.HwanBtn = HwanBtn
+	new("UICorner", {Parent=HwanBtn,CornerRadius=UDim.new(0, 10)})
+	local HwanBtnStroke = new("UIStroke", {Parent=HwanBtn})
+	HwanBtnStroke.Thickness = 2
+	HwanBtnStroke.Transparency = 0.8
+	HwanBtnStroke.Color = Color3.fromRGB(255, 255, 255)
+	local HwanInner = new("Frame", {Parent=HwanBtn,Size=UDim2.new(1, -8, 1, -8),Position=UDim2.new(0, 4, 0, 4),BackgroundColor3=cfg.Theme.InfoInner,BorderSizePixel=0,ZIndex=1001})
+	new("UICorner", {Parent=HwanInner,CornerRadius=UDim.new(0, 8)})
+	refs.HwanInner = HwanInner
+	local HwanTop = new("TextLabel", {Parent=HwanInner,Size=UDim2.new(1, 0, 0, 18),Position=UDim2.new(0, 0, 0, 6),BackgroundTransparency=1,Font=Enum.Font.LuckiestGuy,Text=string.sub(cfg.Title, 1, 4):upper(),TextXAlignment=Enum.TextXAlignment.Center,TextYAlignment=Enum.TextYAlignment.Center,TextStrokeTransparency=0,TextStrokeColor3=Color3.fromRGB(255, 255, 255),TextColor3=Color3.fromRGB(0, 0, 0),ZIndex=1002,TextSize=14})
+	local HwanBottom = new("TextLabel", {Parent=HwanInner,Size=UDim2.new(1, 0, 0, 20),Position=UDim2.new(0, 0, 0, 26),BackgroundTransparency=1,Font=Enum.Font.LuckiestGuy,Text="HUB",TextXAlignment=Enum.TextXAlignment.Center,TextYAlignment=Enum.TextYAlignment.Center,TextStrokeTransparency=0,TextStrokeColor3=Color3.fromRGB(255, 255, 255),TextColor3=Color3.fromRGB(0, 0, 0),ZIndex=1002,TextSize=16})
+	local hwanTopGrad = new("UIGradient", {Parent=HwanTop})
+	hwanTopGrad.Rotation = 0
+	local hwanBottomGrad = new("UIGradient", {Parent=HwanBottom})
+	hwanBottomGrad.Rotation = 0
+	hwanTopGrad.Color = titleGrad.Color
+	hwanBottomGrad.Color = titleGrad.Color
+	local contentYStart = dividerY + 2
+	local contentArea = new("Frame", {Parent=Frame,Size=UDim2.new(1, 0, 0.945, -106),Position=UDim2.new(0, 0, 0, contentYStart),BackgroundTransparency=1})
+	new("UIPadding", {Parent=contentArea,PaddingLeft=UDim.new(0, 4),PaddingRight=UDim.new(0, 4),PaddingTop=UDim.new(0, 4),PaddingBottom=UDim.new(0, 20)})
+	refs.ContentArea = contentArea
+	local window = {_dropdownInstances={},_dropdownStates={},_activeTabIndex=1,_savedState={active=nil,dropdownSelections={}}}
+	if cfg.AntiAFK then
+		do
+			pcall(function()
+				do
+					pcall(function()
+						local vu = game:GetService("VirtualUser")
+						if (window._antiAfkConn and window._antiAfkConn.Disconnect) then
+							pcall(function()
+								window._antiAfkConn:Disconnect()
+							end)
+						end
+						if (LocalPlayer and LocalPlayer.Idled) then
+							window._antiAfkConn = LocalPlayer.Idled:Connect(function()
+								pcall(function()
+									vu:CaptureController()
+									local camera = workspace.CurrentCamera
+									vu:Button2Down(Vector2.new(0, 0), (camera and camera.CFrame) or CFrame.new())
+									task.wait(1)
+									vu:Button2Up(Vector2.new(0, 0), (camera and camera.CFrame) or CFrame.new())
+								end)
+							end)
+							addConn(window._antiAfkConn)
+						end
+					end)
+				end
+			end)
+		end
+	end
+	window._config = cfg
+	window.Root = screenGui
+	window.Main = Frame
+	window.Flags = {}
+	local pages = {}
+	local tabList = {}
+	local darkTabText = darkenColor(cfg.Theme.Text, 0.18)
+	local tabScroll = new("ScrollingFrame", {Parent=TabsHolder,Size=UDim2.new(1, 0, 1, 0),Position=UDim2.new(0, 0, 0, 0),BackgroundTransparency=1,ScrollBarThickness=0,ScrollBarImageTransparency=1,CanvasSize=UDim2.new(0, 0, 0, 0),AutomaticCanvasSize=Enum.AutomaticSize.X,HorizontalScrollBarInset=Enum.ScrollBarInset.Always})
+	new("UIListLayout", {Parent=tabScroll,FillDirection=Enum.FillDirection.Horizontal,Padding=UDim.new(0, 8),SortOrder=Enum.SortOrder.LayoutOrder}).HorizontalAlignment = Enum.HorizontalAlignment.Left
+	window.SetSubtitle = function(self, text)
+		pcall(function()
+			if (refs and refs.TitleSub and refs.TitleSub.Parent) then
+				refs.TitleSub.Text = tostring(text or "")
+			end
+		end)
+	end
+	local function clampCanvas()
+		pcall(function()
+			local maxX = math.max(tabScroll.AbsoluteCanvasSize.X - tabScroll.AbsoluteSize.X, 0)
+			local cur = tabScroll.CanvasPosition.X
+			if (cur < 0) then
+				tabScroll.CanvasPosition = Vector2.new(0, 0)
+			end
+			if (cur > maxX) then
+				tabScroll.CanvasPosition = Vector2.new(maxX, 0)
+			end
+		end)
+	end
+	local function updateTabsLayout()
+		local count = #tabList
+		local avail = math.max(tabScroll.AbsoluteSize.X, cfg.Width)
+		if (count == 0) then
+			return
+		end
+		local fixedSlots = math.max(1, math.min(count, 4))
+		local padding = 8
+		local totalPaddingForSlots = padding * (fixedSlots + 1)
+		local slotWidth = math.floor((avail - totalPaddingForSlots) / fixedSlots)
+		slotWidth = clampVal(slotWidth, 64, 160)
+		for _, t in ipairs(tabList) do
+			if (t and t.Button and t.Button.Parent) then
+				t.Button.Size = UDim2.new(0, slotWidth, 0, 32)
+			end
+		end
+		local totalWidth = (padding * (#tabList + 1)) + (#tabList * slotWidth)
+		tabScroll.AutomaticCanvasSize = Enum.AutomaticSize.None
+		tabScroll.CanvasSize = UDim2.new(0, math.max(totalWidth, avail), 0, 0)
+		if (#tabList <= 3) then
+			tabScroll.CanvasPosition = Vector2.new(0, 0)
+		end
+		clampCanvas()
+	end
+	addConn(tabScroll:GetPropertyChangedSignal("AbsoluteSize"):Connect(function()
+		updateTabsLayout()
+	end))
+	addConn(tabScroll:GetPropertyChangedSignal("AbsoluteCanvasSize"):Connect(function()
+		clampCanvas()
+	end))
+	task.defer(function()
+		pcall(updateTabsLayout)
+	end)
+	do
+		local dragging = false
+		local dragStart = Vector2.new()
+		local startCanvasX = 0
+		local dragInput
+		local conn1 = tabScroll.InputBegan:Connect(function(input)
+			if ((input.UserInputType == Enum.UserInputType.MouseButton1) or (input.UserInputType == Enum.UserInputType.Touch)) then
+				dragging = true
+				dragStart = input.Position
+				startCanvasX = tabScroll.CanvasPosition.X
+				local endedConn
+				endedConn = input.Changed:Connect(function()
+					if (input.UserInputState == Enum.UserInputState.End) then
+						dragging = false
+						if endedConn then
+							endedConn:Disconnect()
+						end
+					end
+				end)
+				addConn(endedConn)
+			end
+		end)
+		addConn(conn1)
+		local conn2 = UserInputService.InputChanged:Connect(function(input)
+			if ((input.UserInputType == Enum.UserInputType.MouseMovement) or (input.UserInputType == Enum.UserInputType.Touch)) then
+				dragInput = input
+			end
+		end)
+		addConn(conn2)
+		local conn3 = UserInputService.InputChanged:Connect(function(input)
+			if (dragging and (input == dragInput)) then
+				local delta = input.Position - dragStart
+				local maxX = math.max(tabScroll.AbsoluteCanvasSize.X - tabScroll.AbsoluteSize.X, 0)
+				local newX = clampVal(startCanvasX - delta.X, 0, maxX)
+				tabScroll.CanvasPosition = Vector2.new(newX, 0)
+			end
+		end)
+		addConn(conn3)
+	end
+	local preventWindowDrag = false
+	local function registerFlag(name, meta)
+		if (not name or (name == "")) then
+			return
+		end
+		window.Flags[name] = meta or {}
+	end
+	local function createTab(name)
+		local idx = #tabList + 1
+		local btn = new("TextButton", {Parent=tabScroll,Text=name,Size=UDim2.new(0, 96, 0, 32),BackgroundColor3=cfg.Theme.TabBg,TextColor3=darkenColor(cfg.Theme.Text, 0.18),Font=Enum.Font.SourceSansBold,TextSize=16,TextXAlignment=Enum.TextXAlignment.Center,TextYAlignment=Enum.TextYAlignment.Center,AutoButtonColor=false,BorderSizePixel=0})
+		new("UICorner", {Parent=btn,CornerRadius=UDim.new(0, 10)})
+		btn.TextStrokeTransparency = 1
+		local content = new("ScrollingFrame", {Parent=contentArea,Size=UDim2.new(1, 0, 1.024, 0),Position=UDim2.new(0, -0.012, 0, 0),BackgroundTransparency=1,ScrollBarThickness=0,ScrollBarImageTransparency=1,CanvasSize=UDim2.new(0, 0, 0, 0),AutomaticCanvasSize=Enum.AutomaticSize.None,VerticalScrollBarInset=Enum.ScrollBarInset.Always})
+		content.Visible = false
+		local contentLayout = new("UIListLayout", {Parent=content,FillDirection=Enum.FillDirection.Vertical,SortOrder=Enum.SortOrder.LayoutOrder,Padding=UDim.new(0, 10)})
+		new("UIPadding", {Parent=content,PaddingLeft=UDim.new(0, 6),PaddingRight=UDim.new(0, 6),PaddingTop=UDim.new(0, 6)})
+		local pendingTextNodes = {}
+		local function hideTextNodesIn(obj)
+			for _, d in ipairs(obj:GetDescendants()) do
+				if (d:IsA("TextLabel") or d:IsA("TextButton") or d:IsA("TextBox")) then
+					local cur = 0
+					pcall(function()
+						cur = d.TextTransparency
+					end)
+					if d.SetAttribute then
+						d:SetAttribute("hw_orig_text_transparency", cur)
+					end
+					d.TextTransparency = 1
+					table.insert(pendingTextNodes, d)
+				end
+			end
+		end
+		local function revealPendingText()
+			if (#pendingTextNodes == 0) then
+				return
+			end
+			for i = #pendingTextNodes, 1, -1 do
+				local node = pendingTextNodes[i]
+				if (node and node.Parent) then
+					pcall(function()
+						TweenService:Create(node, TweenInfo.new(0.18, Enum.EasingStyle.Sine, Enum.EasingDirection.Out), {TextTransparency=0}):Play()
+					end)
+				end
+				pendingTextNodes[i] = nil
+			end
+			pendingTextNodes = {}
+		end
+		local function updateContentCanvas()
+			local h = contentLayout.AbsoluteContentSize.Y + 6
+			content.CanvasSize = UDim2.new(0, 0, 0, h)
+		end
+		local function waitForLayoutStability()
+			local maxFrames = 45
+			local stableNeeded = 2
+			local stable = 0
+			local prev = -1
+			for i = 1, maxFrames do
+				local frameHeight = (Frame and Frame.AbsoluteSize and Frame.AbsoluteSize.Y) or 0
+				local layoutH = contentLayout.AbsoluteContentSize.Y or 0
+				if ((layoutH > 0) and (frameHeight > 8)) then
+					if (layoutH == prev) then
+						stable = stable + 1
+					else
+						stable = 0
+					end
+					prev = layoutH
+				else
+					prev = layoutH
+					stable = 0
+				end
+				if ((layoutH > 0) and (stable >= stableNeeded)) then
+					break
+				end
+				RunService.Heartbeat:Wait()
+			end
+			pcall(updateContentCanvas)
+			pcall(revealPendingText)
+		end
+		addConn(contentLayout:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(function()
+			pcall(updateContentCanvas)
+		end))
+		local tab = {Name=name,Button=btn,Content=content,Index=idx,_showed=function()
+			return content.Visible
+		end,_waiter=waitForLayoutStability,_reveal=revealPendingText}
+		addConn(btn.MouseEnter:Connect(function()
+			if (UserInputService.MouseEnabled and not tab.Selected) then
+				tween(btn, {BackgroundColor3=brightenColor(cfg.Theme.TabBg, 0.06)}, 0.12)
+			end
+		end))
+		addConn(btn.MouseLeave:Connect(function()
+			if (btn ~= nil) then
+				if not tab.Selected then
+					tween(btn, {BackgroundColor3=cfg.Theme.TabBg}, 0.12)
+				else
+					tween(btn, {BackgroundColor3=brightenColor(cfg.Theme.TabBg, 0.14)}, 0.12)
+				end
+			end
+		end))
+		local controlScale = 0.3
+		tab.CreateButton = function(self, opts)
+			opts = opts or {}
+			local name = opts.Name or "Button"
+			local cb = opts.Callback
+			local innerPad = 8
+			local bg = new("Frame", {Parent=content,Size=UDim2.new(1, 0, 0, 44),BackgroundColor3=cfg.Theme.ElementBg,BackgroundTransparency=0.5,BorderSizePixel=0})
+			new("UICorner", {Parent=bg,CornerRadius=UDim.new(0, 8)})
+			new("UIPadding", {Parent=bg,PaddingLeft=UDim.new(0, innerPad),PaddingRight=UDim.new(0, innerPad),PaddingTop=UDim.new(0, innerPad - 2),PaddingBottom=UDim.new(0, innerPad - 2)})
+			local row = new("Frame", {Parent=bg,Size=UDim2.new(1, 0, 1, 0),BackgroundTransparency=1})
+			local lbl = new("TextLabel", {Parent=row,Text=name,Size=UDim2.new(1 - controlScale, -(innerPad * 2), 0, 28),Position=UDim2.new(0, 0, 0.5, 0),AnchorPoint=Vector2.new(0, 0.5),BackgroundTransparency=1,TextColor3=cfg.Theme.Text,Font=Enum.Font.SourceSansBold,TextSize=17,TextXAlignment=Enum.TextXAlignment.Left,TextYAlignment=Enum.TextYAlignment.Center})
+			local b = new("TextButton", {Parent=row,Size=UDim2.new(controlScale, -innerPad, 0, 28),Position=UDim2.new(1, 0, 0.5, 0),AnchorPoint=Vector2.new(1, 0.5),BackgroundColor3=cfg.Theme.ControlBg,TextColor3=cfg.Theme.Text,Text=(opts.ButtonText or "Button"),Font=Enum.Font.SourceSansBold,TextSize=17,AutoButtonColor=false,TextXAlignment=Enum.TextXAlignment.Center,TextYAlignment=Enum.TextYAlignment.Center,TextScaled=false})
+			new("UICorner", {Parent=b,CornerRadius=UDim.new(0, 8)})
+			addConn(b.MouseButton1Click:Connect(function()
+				if cb then
+					pcall(cb)
+				end
+				tween(b, {BackgroundColor3=brightenColor(cfg.Theme.ControlBg, 0.12)}, 0.06)
+				task.wait(0.06)
+				tween(b, {BackgroundColor3=cfg.Theme.ControlBg}, 0.12)
+			end))
+			pcall(hideTextNodesIn, bg)
+			task.defer(function()
+				pcall(updateContentCanvas)
+			end)
+			return b
+		end
+		tab.CreateToggle = function(self, opts)
+			opts = opts or {}
+			local name = opts.Name or "Toggle"
+			local flag = opts.Flag
+			local current = opts.CurrentValue or opts.Current or false
+			local cb = opts.Callback
+			local BG_HEIGHT = 44
+			local toggleWidth = 46
+			local TOGGLE_HEIGHT = 24
+			local DOT_SIZE = 16
+			local INNER_PAD = 8
+			local SIDE_MARGIN = 4
+			local bg = new("Frame", {Parent=content,Size=UDim2.new(1, 0, 0, BG_HEIGHT),BackgroundColor3=cfg.Theme.ElementBg,BackgroundTransparency=0.5,BorderSizePixel=0})
+			new("UICorner", {Parent=bg,CornerRadius=UDim.new(0, 8)})
+			new("UIPadding", {Parent=bg,PaddingLeft=UDim.new(0, INNER_PAD),PaddingRight=UDim.new(0, INNER_PAD),PaddingTop=UDim.new(0, INNER_PAD - 2),PaddingBottom=UDim.new(0, INNER_PAD - 2)})
+			local frame = new("Frame", {Parent=bg,Size=UDim2.new(1, 0, 1, 0),BackgroundTransparency=1})
+			new("TextLabel", {Parent=frame,Text=name,Size=UDim2.new(1 - controlScale, -(INNER_PAD * 2), 0, 20),Position=UDim2.new(0, 0, 0.5, 0),AnchorPoint=Vector2.new(0, 0.5),BackgroundTransparency=1,TextColor3=cfg.Theme.Text,Font=Enum.Font.SourceSansBold,TextSize=17,TextXAlignment=Enum.TextXAlignment.Left,TextYAlignment=Enum.TextYAlignment.Center})
+			local toggleBg = new("Frame", {Parent=frame,Size=UDim2.new(0, toggleWidth, 0, TOGGLE_HEIGHT),Position=UDim2.new(1, 0, 0.5, 0),AnchorPoint=Vector2.new(1, 0.5),BackgroundColor3=cfg.Theme.ControlBg,BorderSizePixel=0})
+			new("UICorner", {Parent=toggleBg,CornerRadius=UDim.new(0, 12)})
+			local dotOffColor = darkenColor(Color3.fromRGB(200, 200, 200), 0.16)
+			local dotOnColor = brightenColor(cfg.Theme.Accent, 0)
+			local dot = new("Frame", {Parent=toggleBg,Size=UDim2.new(0, DOT_SIZE, 0, DOT_SIZE),BackgroundColor3=dotOffColor,BorderSizePixel=0})
+			new("UICorner", {Parent=dot,CornerRadius=UDim.new(1, 0)})
+			dot.AnchorPoint = Vector2.new(0, 0.5)
+			local state = (current and true) or false
+			local function positionsReady()
+				return (toggleBg.AbsoluteSize.X > 0) and (dot.AbsoluteSize.X > 0)
+			end
+			local function leftPos()
+				return UDim2.new(0, SIDE_MARGIN, 0.5, 0)
+			end
+			local function rightPos()
+				local x = math.max(0, (toggleBg.AbsoluteSize.X - dot.AbsoluteSize.X) - SIDE_MARGIN)
+				return UDim2.new(0, x, 0.5, 0)
+			end
+			local function applyStateInstant(s)
+				state = (s and true) or false
+				if state then
+					dot.Position = rightPos()
+					dot.BackgroundColor3 = dotOnColor
+					toggleBg.BackgroundColor3 = cfg.Theme.ControlBg
+				else
+					dot.Position = leftPos()
+					dot.BackgroundColor3 = dotOffColor
+					toggleBg.BackgroundColor3 = cfg.Theme.ControlBg
+				end
+			end
+			local function setState(s, silent)
+				state = (s and true) or false
+				if not positionsReady() then
+					local conn1, conn2
+					conn1 = toggleBg:GetPropertyChangedSignal("AbsoluteSize"):Connect(function()
+						if positionsReady() then
+							conn1:Disconnect()
+							if conn2 then
+								conn2:Disconnect()
+							end
+							if state then
+								pcall(function()
+									tween(dot, {Position=rightPos()}, 0.14, Enum.EasingStyle.Sine, Enum.EasingDirection.Out)
+									tween(dot, {BackgroundColor3=dotOnColor}, 0.12, Enum.EasingStyle.Sine, Enum.EasingDirection.Out)
+								end)
+							else
+								pcall(function()
+									tween(dot, {Position=leftPos()}, 0.12, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
+									tween(dot, {BackgroundColor3=dotOffColor}, 0.12, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
+								end)
+							end
+						end
+					end)
+					conn2 = dot:GetPropertyChangedSignal("AbsoluteSize"):Connect(function()
+						if positionsReady() then
+							conn2:Disconnect()
+							if conn1 then
+								conn1:Disconnect()
+							end
+						end
+					end)
+					return
+				end
+				if state then
+					pcall(function()
+						tween(dot, {Position=rightPos()}, 0.14, Enum.EasingStyle.Sine, Enum.EasingDirection.Out)
+						tween(dot, {BackgroundColor3=dotOnColor}, 0.12, Enum.EasingStyle.Sine, Enum.EasingDirection.Out)
+					end)
+				else
+					pcall(function()
+						tween(dot, {Position=leftPos()}, 0.12, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
+						tween(dot, {BackgroundColor3=dotOffColor}, 0.12, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
+					end)
+				end
+				if (cb and not silent) then
+					pcall(cb, state)
+				end
+			end
+			local clickBtn = new("TextButton", {Parent=toggleBg,Size=UDim2.new(1, 0, 1, 0),Position=UDim2.new(0, 0, 0, 0),BackgroundTransparency=1,AutoButtonColor=false,Text=""})
+			addConn(clickBtn.MouseButton1Click:Connect(function()
+				setState(not state)
+			end))
+			if positionsReady() then
+				applyStateInstant(state)
+			else
+				local connA, connB
+				connA = toggleBg:GetPropertyChangedSignal("AbsoluteSize"):Connect(function()
+					if positionsReady() then
+						connA:Disconnect()
+						if connB then
+							connB:Disconnect()
+						end
+						applyStateInstant(state)
+					end
+				end)
+				connB = dot:GetPropertyChangedSignal("AbsoluteSize"):Connect(function()
+					if positionsReady() then
+						if connA then
+							connA:Disconnect()
+						end
+						connB:Disconnect()
+						applyStateInstant(state)
+					end
+				end)
+			end
+			pcall(hideTextNodesIn, bg)
+			task.defer(function()
+				pcall(updateContentCanvas)
+			end)
+			if (flag and (type(flag) == "string")) then
+				registerFlag(flag, {Type="Toggle",Get=function()
+					return state
+				end,Set=function(v)
+					setState((v and true) or false, true)
+				end,UI=bg})
+			end
+			return {UI=bg,Get=function()
+				return state
+			end,Set=function(v)
+				setState((v and true) or false)
+			end,Flag=flag}
+		end
+		tab.CreateSection = function(self, title)
+			local lbl = new("TextLabel", {Parent=content,Size=UDim2.new(1, 0, 0, 18),Text=(title or ""),BackgroundTransparency=1,TextColor3=cfg.Theme.Text,Font=Enum.Font.SourceSansBold,TextSize=17,TextXAlignment=Enum.TextXAlignment.Left})
+			pcall(hideTextNodesIn, lbl)
+			task.defer(function()
+				pcall(updateContentCanvas)
+			end)
+			return lbl
+		end
+		tab.CreateDropdown = function(self, opts)
+			opts = opts or {}
+			local name = opts.Name or "Dropdown"
+			local options = opts.Options or opts.Choices or {}
+			local multiple = opts.MultipleOptions or false
+			local callback = opts.Callback
+			local flag = opts.Flag
+			local innerPad = 8
+			local bg = new("Frame", {Parent=content,Size=UDim2.new(1, 0, 0, 44),BackgroundColor3=cfg.Theme.ElementBg,BackgroundTransparency=0.5,BorderSizePixel=0})
+			new("UICorner", {Parent=bg,CornerRadius=UDim.new(0, 8)})
+			new("UIPadding", {Parent=bg,PaddingLeft=UDim.new(0, innerPad),PaddingRight=UDim.new(0, innerPad),PaddingTop=UDim.new(0, innerPad - 2),PaddingBottom=UDim.new(0, innerPad - 2)})
+			local frame = new("Frame", {Parent=bg,Size=UDim2.new(1, 0, 1, 0),BackgroundTransparency=1})
+			new("TextLabel", {Parent=frame,Text=name,Size=UDim2.new(1 - controlScale, -(innerPad * 2), 0, 28),Position=UDim2.new(0, 0, 0.5, 0),AnchorPoint=Vector2.new(0, 0.5),BackgroundTransparency=1,TextColor3=cfg.Theme.Text,Font=Enum.Font.SourceSansBold,TextSize=17,TextXAlignment=Enum.TextXAlignment.Left,TextYAlignment=Enum.TextYAlignment.Center})
+			local btn = new("TextButton", {Parent=frame,Size=UDim2.new(controlScale, -innerPad, 0, 28),Position=UDim2.new(1, 0, 0.5, 0),AnchorPoint=Vector2.new(1, 0.5),BackgroundColor3=cfg.Theme.ControlBg,Text="Select",Font=Enum.Font.SourceSansBold,TextSize=17,TextColor3=cfg.Theme.Text,AutoButtonColor=false,TextScaled=false,TextXAlignment=Enum.TextXAlignment.Center,TextYAlignment=Enum.TextYAlignment.Center})
+			new("UICorner", {Parent=btn,CornerRadius=UDim.new(0, 8)})
+			local dropdownPanel, followConn, contentFrame
+			local instance
+			local uid = HttpService:GenerateGUID(false)
+			local selectedIndex = nil
+			local selectedSet = {}
+			local function updateButtonText()
+				local sel = {}
+				for i = 1, #options do
+					if selectedSet[i] then
+						table.insert(sel, tostring(options[i]))
+					end
+				end
+				if (#sel == 0) then
+					btn.Text = "Select"
+				end
+			end
+			local function closePanel()
+				if followConn then
+					pcall(function()
+						followConn:Disconnect()
+					end)
+					followConn = nil
+				end
+				if (dropdownPanel and dropdownPanel.Parent) then
+					pcall(function()
+						pcall(function()
+							setTransparencyOnDescendants(dropdownPanel, 1, 0.12)
+						end)
+						tween(dropdownPanel, {BackgroundTransparency=1}, 0.12)
+						task.wait(0.12)
+						safeDestroy(dropdownPanel)
+					end)
+				end
+				dropdownPanel = nil
+				if (instance and window and window._dropdownStates) then
+					window._dropdownStates[uid] = false
+				end
+			end
+			local function updatePanelPos()
+				if (not Frame or not Frame.Parent) then
+					return
+				end
+				pcall(function()
+					local screenSize = (Workspace.CurrentCamera and Workspace.CurrentCamera.ViewportSize) or Vector2.new(1920, 1080)
+					local panelW = clampVal(math.floor(Frame.AbsoluteSize.X - 16), 220, 520)
+					if (panelW <= 0) then
+						panelW = 260
+					end
+					local maxVisible = 6
+					local itemH = 36
+					local headerH = 30
+					local optionsH = math.min(#options * itemH, maxVisible * itemH)
+					local panelHeight = headerH + optionsH + 12
+					local mainAbsPos = Frame.AbsolutePosition
+					local mainAbsSize = Frame.AbsoluteSize
+					local x = mainAbsPos.X + mainAbsSize.X + 8
+					if ((x + panelW + 8) > screenSize.X) then
+						x = math.max(8, (mainAbsPos.X - panelW) - 8)
+					end
+					local mainDivider = refs.MainDivider
+					local panelY = mainDivider.AbsolutePosition.Y + mainDivider.AbsoluteSize.Y + 2
+					if (panelY < 8) then
+						panelY = 8
+					elseif ((panelY + panelHeight + 8) > screenSize.Y) then
+						panelY = (screenSize.Y - panelHeight) - 8
+					end
+					if (dropdownPanel and dropdownPanel.Parent) then
+						dropdownPanel.Size = UDim2.new(0, panelW, 0, panelHeight)
+						dropdownPanel.Position = UDim2.new(0, x, 0, panelY)
+						if contentFrame then
+							contentFrame.Size = UDim2.new(1, -12, 0, optionsH)
+							contentFrame.Position = UDim2.new(0, 6, 0, headerH)
+							contentFrame.CanvasSize = UDim2.new(0, 0, 0, #options * itemH)
+						end
+					end
+				end)
+			end
+			local function showPanel()
+				if (dropdownPanel and dropdownPanel.Parent) then
+					closePanel()
+					return
+				end
+				if (window and window._dropdownInstances) then
+					for _, other in ipairs(window._dropdownInstances) do
+						if ((other ~= instance) and other.IsOpen and other.IsOpen()) then
+							pcall(function()
+								other.Close()
+							end)
+						end
+					end
+				end
+				task.wait(0.12)
+				local panelW = clampVal(math.floor(Frame.AbsoluteSize.X - 16), 220, 520)
+				if (panelW <= 0) then
+					panelW = 260
+				end
+				local maxVisible = 6
+				local itemH = 36
+				local headerH = 30
+				local optionsH = math.min(#options * itemH, maxVisible * itemH)
+				local panelHeight = headerH + optionsH + 12
+				local mainAbsPos = Frame.AbsolutePosition
+				local mainAbsSize = Frame.AbsoluteSize
+				local x = mainAbsPos.X + mainAbsSize.X + 8
+				local screenSize = (Workspace.CurrentCamera and Workspace.CurrentCamera.ViewportSize) or Vector2.new(1920, 1080)
+				if ((x + panelW + 8) > screenSize.X) then
+					x = math.max(8, (mainAbsPos.X - panelW) - 8)
+				end
+				local mainDivider = refs.MainDivider
+				local panelY = mainDivider.AbsolutePosition.Y + mainDivider.AbsoluteSize.Y + 2
+				if (panelY < 8) then
+					panelY = 8
+				elseif ((panelY + panelHeight + 8) > screenSize.Y) then
+					panelY = (screenSize.Y - panelHeight) - 8
+				end
+				dropdownPanel = new("Frame", {Parent=screenGui,Size=UDim2.new(0, panelW, 0, panelHeight),Position=UDim2.new(0, x, 0, panelY),BackgroundColor3=cfg.Theme.Main,ZIndex=220,BackgroundTransparency=1})
+				new("UICorner", {Parent=dropdownPanel,CornerRadius=UDim.new(0, 8)})
+				new("UIPadding", {Parent=dropdownPanel,PaddingLeft=UDim.new(0, 3),PaddingRight=UDim.new(0, 3),PaddingTop=UDim.new(0, 3)})
+				local panelStroke = new("UIStroke", {Parent=dropdownPanel})
+				panelStroke.Thickness = 2
+				panelStroke.Transparency = 0.8
+				panelStroke.Color = Color3.fromRGB(255, 255, 255)
+				local header = new("TextLabel", {Parent=dropdownPanel,Size=UDim2.new(1, -12, 0, headerH - 4),Position=UDim2.new(0, 6, 0, 2),BackgroundTransparency=1,Font=Enum.Font.SourceSansBold,TextSize=17,Text=(name or ""),TextXAlignment=Enum.TextXAlignment.Left,TextYAlignment=Enum.TextYAlignment.Center,TextColor3=cfg.Theme.Text,ZIndex=221})
+				contentFrame = new("ScrollingFrame", {Parent=dropdownPanel,Size=UDim2.new(1, -12, -0.018, 216),Position=UDim2.new(0, 6, 0, 36),BackgroundTransparency=1,ScrollBarThickness=0,CanvasSize=UDim2.new(0, 0, 0, #options * itemH),VerticalScrollBarInset=Enum.ScrollBarInset.Always})
+				contentFrame.AutomaticCanvasSize = Enum.AutomaticSize.None
+				contentFrame.CanvasPosition = Vector2.new(0, 0)
+				for i, opt in ipairs(options) do
+					local row = new("TextButton", {Parent=contentFrame,Size=UDim2.new(1, 0, 0, itemH - 6),Position=UDim2.new(0, 0, 0, (i - 1) * itemH),BackgroundColor3=cfg.Theme.TabBg,Text=tostring(opt),Font=Enum.Font.SourceSansBold,TextSize=17,TextColor3=cfg.Theme.Text,AutoButtonColor=false,ZIndex=222})
+					new("UICorner", {Parent=row,CornerRadius=UDim.new(0, 6)})
+					row.TextStrokeTransparency = 1
+					row.MouseEnter:Connect(function()
+						if selectedSet[i] then
+							return
+						end
+						tween(row, {BackgroundColor3=brightenColor(cfg.Theme.TabBg, 0.06)}, 0.1)
+					end)
+					row.MouseLeave:Connect(function()
+						if selectedSet[i] then
+							tween(row, {BackgroundColor3=brightenColor(cfg.Theme.TabBg, 0.12)}, 0.1)
+						else
+							tween(row, {BackgroundColor3=cfg.Theme.TabBg}, 0.1)
+						end
+					end)
+					row.MouseButton1Click:Connect(function()
+						if multiple then
+							if selectedSet[i] then
+								selectedSet[i] = nil
+								row.BackgroundColor3 = cfg.Theme.TabBg
+								row.TextColor3 = cfg.Theme.Text
+							else
+								selectedSet[i] = true
+								row.BackgroundColor3 = brightenColor(cfg.Theme.TabBg, 0.14)
+								row.TextColor3 = Color3.fromRGB(255, 255, 255)
+							end
+							local selVals = {}
+							for j = 1, #options do
+								if selectedSet[j] then
+									table.insert(selVals, options[j])
+								end
+							end
+							updateButtonText()
+							if (window and window._savedState) then
+								if (#selVals > 0) then
+									local idxs = {}
+									for j = 1, #options do
+										if selectedSet[j] then
+											table.insert(idxs, j)
+										end
+									end
+									window._savedState.dropdownSelections[uid] = idxs
+								else
+									window._savedState.dropdownSelections[uid] = nil
+								end
+							end
+							if callback then
+								local copy = {}
+								for _, v in ipairs(selVals) do
+									table.insert(copy, v)
+								end
+								pcall(callback, copy)
+							end
+							if (flag and window.Flags[flag] and window.Flags[flag].Set) then
+								pcall(window.Flags[flag].Set, selVals)
+							end
+							return
+						end
+						if (selectedIndex == i) then
+							selectedIndex = nil
+							row.BackgroundColor3 = cfg.Theme.TabBg
+							row.TextColor3 = cfg.Theme.Text
+							window._savedState.dropdownSelections[uid] = nil
+							if callback then
+								pcall(callback, nil)
+							end
+							selectedSet = {}
+							updateButtonText()
+							if (flag and window.Flags[flag] and window.Flags[flag].Set) then
+								window.Flags[flag].Set(nil)
+							end
+							return
+						end
+						for _, child in ipairs(contentFrame:GetChildren()) do
+							if child:IsA("TextButton") then
+								pcall(function()
+									child.BackgroundColor3 = cfg.Theme.TabBg
+									child.TextColor3 = cfg.Theme.Text
+								end)
+							end
+						end
+						selectedIndex = i
+						selectedSet = {}
+						selectedSet[i] = true
+						row.BackgroundColor3 = brightenColor(cfg.Theme.TabBg, 0.14)
+						row.TextColor3 = Color3.fromRGB(255, 255, 255)
+						updateButtonText()
+						if (window and window._savedState) then
+							window._savedState.dropdownSelections[uid] = i
+						end
+						if callback then
+							pcall(callback, opt)
+						end
+						if (flag and window.Flags[flag] and window.Flags[flag].Set) then
+							window.Flags[flag].Set(opt)
+						end
+					end)
+				end
+				pcall(function()
+					local saved = window and window._savedState and window._savedState.dropdownSelections and window._savedState.dropdownSelections[uid]
+					if (saved and contentFrame) then
+						if (multiple and (type(saved) == "table")) then
+							selectedSet = {}
+							for _, idx in ipairs(saved) do
+								selectedSet[idx] = true
+							end
+							for childI, child in ipairs(contentFrame:GetChildren()) do
+								if child:IsA("TextButton") then
+									local i = childI
+									if selectedSet[i] then
+										child.BackgroundColor3 = brightenColor(cfg.Theme.TabBg, 0.14)
+										child.TextColor3 = Color3.fromRGB(255, 255, 255)
+									else
+										child.BackgroundColor3 = cfg.Theme.TabBg
+										child.TextColor3 = cfg.Theme.Text
+									end
+								end
+							end
+							updateButtonText()
+						elseif (type(saved) == "number") then
+							local idx = saved
+							selectedSet = {}
+							selectedSet[idx] = true
+							local children = contentFrame:GetChildren()
+							for childI, child in ipairs(children) do
+								if child:IsA("TextButton") then
+									if (childI == idx) then
+										child.BackgroundColor3 = brightenColor(cfg.Theme.TabBg, 0.14)
+										child.TextColor3 = Color3.fromRGB(255, 255, 255)
+										selectedIndex = idx
+									else
+										child.BackgroundColor3 = cfg.Theme.TabBg
+										child.TextColor3 = cfg.Theme.Text
+									end
+								end
+							end
+							updateButtonText()
+						end
+					end
+				end)
+				updatePanelPos()
+				dropdownPanel.BackgroundTransparency = 1
+				pcall(function()
+					setTransparencyOnDescendants(dropdownPanel, 1, 0)
+				end)
+				tween(dropdownPanel, {BackgroundTransparency=0}, 0.18)
+				task.delay(0.06, function()
+					pcall(function()
+						setTransparencyOnDescendants(dropdownPanel, 0, 0.18)
+					end)
+				end)
+				if not followConn then
+					followConn = RunService.Heartbeat:Connect(function()
+						pcall(updatePanelPos)
+					end)
+				end
+			end
+			local opening = false
+			local openConn = btn.MouseButton1Click:Connect(function()
+				if opening then
+					return
+				end
+				opening = true
+				pcall(showPanel)
+				task.wait(0.02)
+				opening = false
+			end)
+			addConn(openConn)
+			instance = {UI=frame,Set=function(v)
+				selectedSet = {}
+				selectedIndex = nil
+				if (type(v) == "table") then
+					for i = 1, #options do
+						for _, val in ipairs(v) do
+							if (tostring(val) == tostring(options[i])) then
+								selectedSet[i] = true
+							end
+						end
+					end
+				elseif (type(v) == "number") then
+					if ((v >= 1) and (v <= #options)) then
+						selectedSet[v] = true
+						selectedIndex = v
+					end
+				elseif (type(v) == "string") then
+					for i = 1, #options do
+						if (tostring(options[i]) == v) then
+							selectedSet[i] = true
+							selectedIndex = i
+							break
+						end
+					end
+				end
+				updateButtonText()
+				if (dropdownPanel and dropdownPanel.Parent) then
+					for childI, child in ipairs((contentFrame and contentFrame:GetChildren()) or {}) do
+						if child:IsA("TextButton") then
+							local i = childI
+							if selectedSet[i] then
+								child.BackgroundColor3 = brightenColor(cfg.Theme.TabBg, 0.14)
+								child.TextColor3 = Color3.fromRGB(255, 255, 255)
+							else
+								child.BackgroundColor3 = cfg.Theme.TabBg
+								child.TextColor3 = cfg.Theme.Text
+							end
+						end
+					end
+				end
+			end,Open=showPanel,Close=closePanel,IsOpen=function()
+				return dropdownPanel ~= nil
+			end,Button=btn,uid=uid,Flag=flag}
+			if (flag and (type(flag) == "string")) then
+				registerFlag(flag, {Type="Dropdown",Get=function()
+					local sel = {}
+					for i = 1, #options do
+						if selectedSet[i] then
+							table.insert(sel, options[i])
+						end
+					end
+					if (#sel == 0) then
+						return nil
+					end
+					if (not multiple and (#sel == 1)) then
+						return sel[1]
+					end
+					return sel
+				end,Set=function(v)
+					instance.Set(v)
+				end,UI=frame})
+			end
+			if window then
+				window._dropdownInstances = window._dropdownInstances or {}
+				table.insert(window._dropdownInstances, instance)
+				window._dropdownStates = window._dropdownStates or {}
+				window._dropdownStates[uid] = false
+				window._savedState = window._savedState or {}
+				window._savedState.dropdownSelections = window._savedState.dropdownSelections or {}
+			end
+			pcall(hideTextNodesIn, bg)
+			task.defer(function()
+				pcall(updateContentCanvas)
+			end)
+			return instance
+		end
+		tab.CreateKeybind = function(self, opts)
+			opts = opts or {}
+			local label = opts.Name or "Keybind"
+			local defaultKey = opts.Default or opts.CurrentValue or opts.Key
+			local cb = opts.Callback
+			local flag = opts.Flag
+			local innerPad = 8
+			local bg = new("Frame", {Parent=content,Size=UDim2.new(1, 0, 0, 44),BackgroundColor3=cfg.Theme.ElementBg,BackgroundTransparency=0.5,BorderSizePixel=0})
+			new("UICorner", {Parent=bg,CornerRadius=UDim.new(0, 8)})
+			new("UIPadding", {Parent=bg,PaddingLeft=UDim.new(0, innerPad),PaddingRight=UDim.new(0, innerPad),PaddingTop=UDim.new(0, innerPad - 2),PaddingBottom=UDim.new(0, innerPad - 2)})
+			local row = new("Frame", {Parent=bg,Size=UDim2.new(1, 0, 1, 0),BackgroundTransparency=1})
+			new("TextLabel", {Parent=row,Text=label,Size=UDim2.new(1 - controlScale, -(innerPad * 2), 0, 28),Position=UDim2.new(0, 0, 0.5, 0),AnchorPoint=Vector2.new(0, 0.5),BackgroundTransparency=1,TextColor3=cfg.Theme.Text,Font=Enum.Font.SourceSansBold,TextSize=17,TextXAlignment=Enum.TextXAlignment.Left})
+			local btn = new("TextButton", {Parent=row,Size=UDim2.new(controlScale, -innerPad, 0, 28),Position=UDim2.new(1, 0, 0.5, 0),AnchorPoint=Vector2.new(1, 0.5),BackgroundColor3=cfg.Theme.ControlBg,TextColor3=cfg.Theme.Text,Text="",Font=Enum.Font.SourceSansBold,TextSize=17,AutoButtonColor=false,TextXAlignment=Enum.TextXAlignment.Center,TextYAlignment=Enum.TextYAlignment.Center})
+			new("UICorner", {Parent=btn,CornerRadius=UDim.new(0, 8)})
+			local function displayForKey(k)
+				if not k then
+					btn.Text = "..."
+					return
+				end
+				if ((typeof(k) == "EnumItem") and (k.EnumType == Enum.KeyCode)) then
+					btn.Text = k.Name
+				elseif (type(k) == "string") then
+					btn.Text = k
+				else
+					local ok, s = pcall(function()
+						return tostring(k)
+					end)
+					btn.Text = (ok and s and s) or "..."
+				end
+			end
+			local boundKey = nil
+			if defaultKey then
+				if ((typeof(defaultKey) == "EnumItem") and (defaultKey.EnumType == Enum.KeyCode)) then
+					boundKey = defaultKey
+				elseif (type(defaultKey) == "string") then
+					boundKey = defaultKey
+				end
+			end
+			displayForKey(boundKey)
+			local listening = false
+			local inputConn
+			local cancelClickConn
+			local function stopListening()
+				if inputConn then
+					pcall(function()
+						inputConn:Disconnect()
+					end)
+					inputConn = nil
+				end
+				if cancelClickConn then
+					pcall(function()
+						cancelClickConn:Disconnect()
+					end)
+					cancelClickConn = nil
+				end
+				listening = false
+				tween(btn, {BackgroundColor3=cfg.Theme.ControlBg}, 0.08)
+				displayForKey(boundKey)
+			end
+			local function startListening()
+				if listening then
+					return
+				end
+				listening = true
+				btn.Text = "..."
+				tween(btn, {BackgroundColor3=brightenColor(cfg.Theme.ControlBg, 0.12)}, 0.06)
+				inputConn = UserInputService.InputBegan:Connect(function(input, gameProcessed)
+					if gameProcessed then
+						return
+					end
+					if (input.KeyCode == Enum.KeyCode.Escape) then
+						boundKey = nil
+						pcall(cb, nil)
+						stopListening()
+						return
+					end
+					if (input.UserInputType == Enum.UserInputType.Keyboard) then
+						boundKey = input.KeyCode
+						pcall(cb, boundKey)
+						stopListening()
+						return
+					end
+				end)
+				cancelClickConn = UserInputService.InputBegan:Connect(function(inp, gp)
+					if not listening then
+						return
+					end
+					if (inp.UserInputType == Enum.UserInputType.MouseButton1) then
+						local mousePos = UserInputService:GetMouseLocation()
+						local absPos = btn.AbsolutePosition
+						local absSize = btn.AbsoluteSize
+						if not ((mousePos.X >= absPos.X) and (mousePos.X <= (absPos.X + absSize.X)) and (mousePos.Y >= absPos.Y) and (mousePos.Y <= (absPos.Y + absSize.Y))) then
+							stopListening()
+						end
+					end
+				end)
+			end
+			addConn(btn.MouseButton1Click:Connect(function()
+				if not listening then
+					startListening()
+				else
+					stopListening()
+				end
+			end))
+			addConn(btn.MouseButton2Click:Connect(function()
+				boundKey = nil
+				displayForKey(boundKey)
+				pcall(cb, nil)
+			end))
+			if (flag and (type(flag) == "string")) then
+				registerFlag(flag, {Type="Keybind",Get=function()
+					return boundKey
+				end,Set=function(v)
+					boundKey = v
+					displayForKey(v)
+				end,UI=bg})
+			end
+			pcall(hideTextNodesIn, bg)
+			task.defer(function()
+				pcall(updateContentCanvas)
+			end)
+			return {UI=bg,Set=function(v)
+				if (v == nil) then
+					boundKey = nil
+				elseif ((typeof(v) == "EnumItem") and (v.EnumType == Enum.KeyCode)) then
+					boundKey = v
+				elseif (type(v) == "string") then
+					boundKey = v
+				else
+					boundKey = v
+				end
+				displayForKey(boundKey)
+			end,Get=function()
+				return boundKey
+			end,Flag=flag}
+		end
+		tab.CreateSlider = function(self, opts)
+			opts = opts or {}
+			local name = opts.Name or opts.Label or "Slider"
+			local minValue = opts.Min or 0
+			local maxValue = opts.Max or 100
+			local default = opts.Default or minValue
+			local callback = opts.Callback or function()
+			end
+			local flag = opts.Flag
+			local innerPad = 8
+			local labelHeight = 20
+			local trackHeight = 28
+			local rightBoxScale = controlScale
+			local bottomGap = innerPad
+			local bgHeight = innerPad + labelHeight + trackHeight + bottomGap
+			local bg = new("Frame", {Parent=content,Size=UDim2.new(1, 0, 0, bgHeight),BackgroundColor3=cfg.Theme.ElementBg,BackgroundTransparency=0.5,BorderSizePixel=0})
+			new("UICorner", {Parent=bg,CornerRadius=UDim.new(0, 8)})
+			new("UIPadding", {Parent=bg,PaddingLeft=UDim.new(0, innerPad),PaddingRight=UDim.new(0, innerPad),PaddingTop=UDim.new(0, innerPad),PaddingBottom=UDim.new(0, bottomGap)})
+			local leftLabel = new("TextLabel", {Parent=bg,Size=UDim2.new(1, 0, 0, labelHeight),Position=UDim2.new(0, 0, 0, -5),BackgroundTransparency=1,Font=Enum.Font.SourceSansBold,TextSize=17,TextColor3=cfg.Theme.Text,TextXAlignment=Enum.TextXAlignment.Left,TextYAlignment=Enum.TextYAlignment.Center,Text=name})
+			local sliderContainer = new("Frame", {Parent=bg,Size=UDim2.new(0.639, 0, -0.354, 24),Position=UDim2.new(0, 0, 0.667, 0),AnchorPoint=Vector2.new(0, 0.5),BackgroundTransparency=1,BorderSizePixel=0,ClipsDescendants=false})
+			local track = new("Frame", {Parent=sliderContainer,Size=UDim2.new(1, 0, 0, 6),Position=UDim2.new(0, 0, 0.5, 0),AnchorPoint=Vector2.new(0, 0.5),BackgroundColor3=Color3.fromRGB(80, 80, 80),BorderSizePixel=0,ZIndex=1})
+			new("UICorner", {Parent=track,CornerRadius=UDim.new(0, 3)})
+			local fill = new("Frame", {Parent=track,Size=UDim2.new(0, 0, 1, 0),BackgroundColor3=Color3.new(1, 1, 1),BorderSizePixel=0,ZIndex=2})
+			new("UICorner", {Parent=fill,CornerRadius=UDim.new(0, 3)})
+			local thumb = new("TextButton", {Parent=sliderContainer,Size=UDim2.new(0, 14, 0, 14),BackgroundColor3=Color3.new(1, 1, 1),BorderSizePixel=0,Text="",AutoButtonColor=false,ZIndex=3})
+			new("UICorner", {Parent=thumb,CornerRadius=UDim.new(1, 0)})
+			thumb.AnchorPoint = Vector2.new(0.5, 0.5)
+			local inputCapture = new("TextButton", {Parent=sliderContainer,Size=UDim2.new(1, 0, 1, 0),Position=UDim2.new(0, 0, 0, 0),BackgroundTransparency=1,AutoButtonColor=false,Text="",ZIndex=2})
+			local rightBox = new("Frame", {Parent=bg,Size=UDim2.new(rightBoxScale, -innerPad, 0, trackHeight),Position=UDim2.new(1, 0, 0, labelHeight - 2),AnchorPoint=Vector2.new(1, 0),BackgroundColor3=cfg.Theme.ControlBg,BorderSizePixel=0})
+			new("UICorner", {Parent=rightBox,CornerRadius=UDim.new(0, 8)})
+			local valueBox = new("TextBox", {Parent=rightBox,Size=UDim2.new(1, -12, 1, 0),Position=UDim2.new(0, 6, 0, 0),BackgroundTransparency=1,Font=Enum.Font.SourceSansBold,TextSize=17,TextColor3=cfg.Theme.Text,TextXAlignment=Enum.TextXAlignment.Center,TextYAlignment=Enum.TextYAlignment.Center,Text=tostring(default),ClearTextOnFocus=false,TextEditable=true})
+			local currentValue = default
+			local internalUpdating = false
+			local dragging = false
+			local dragConnection
+			local function setFromPercent(p)
+				p = math.clamp(p, 0, 1)
+				fill.Size = UDim2.new(p, 0, 1, 0)
+				local trackWidth = track.AbsoluteSize.X
+				local thumbWidth = thumb.AbsoluteSize.X
+				local thumbHalfWidth = thumbWidth / 2
+				local minX = thumbHalfWidth
+				local maxX = trackWidth - thumbHalfWidth
+				local rangeX = math.max(0, maxX - minX)
+				if (rangeX > 0) then
+					local thumbPosX = minX + (p * rangeX)
+					thumb.Position = UDim2.new(0, thumbPosX, 0.5, 0)
+				else
+					thumb.Position = UDim2.new(0, trackWidth / 2, 0.5, 0)
+				end
+				local val = math.floor(minValue + ((maxValue - minValue) * p))
+				if (val == currentValue) then
+					return
+				end
+				currentValue = val
+				internalUpdating = true
+				pcall(function()
+					valueBox.Text = tostring(val)
+				end)
+				internalUpdating = false
+				task.spawn(function()
+					callback(val)
+				end)
+				if (flag and window.Flags[flag] and window.Flags[flag].Set) then
+					window.Flags[flag].Set(val)
+				end
+			end
+			local function updateSliderGeometry()
+				local p = 0
+				if (maxValue ~= minValue) then
+					p = (currentValue - minValue) / (maxValue - minValue)
+				end
+				setFromPercent(p)
+			end
+			track:GetPropertyChangedSignal("AbsoluteSize"):Connect(updateSliderGeometry)
+			thumb:GetPropertyChangedSignal("AbsoluteSize"):Connect(updateSliderGeometry)
+			if (maxValue == minValue) then
+				setFromPercent(0)
+			else
+				setFromPercent((default - minValue) / (maxValue - minValue))
+			end
+			if (flag and (type(flag) == "string")) then
+				registerFlag(flag, {Type="Slider",Get=function()
+					return currentValue
+				end,Set=function(v)
+					local p = 0
+					if (maxValue ~= minValue) then
+						p = (v - minValue) / (maxValue - minValue)
+					end
+					setFromPercent(p)
+				end,UI=bg})
+			end
+			local function startDrag()
+				if dragging then
+					return
+				end
+				dragging = true
+				dragConnection = RunService.RenderStepped:Connect(function()
+					if not dragging then
+						return
+					end
+					local mouse = UserInputService:GetMouseLocation()
+					local trackAbsPos = track.AbsolutePosition
+					local trackAbsSize = track.AbsoluteSize
+					local thumbWidth = thumb.AbsoluteSize.X
+					local thumbHalfWidth = thumbWidth / 2
+					local trackStart = trackAbsPos.X + thumbHalfWidth
+					local trackEnd = (trackAbsPos.X + trackAbsSize.X) - thumbHalfWidth
+					local trackLength = trackEnd - trackStart
+					if (trackLength > 0) then
+						local p = (mouse.X - trackStart) / trackLength
+						p = math.clamp(p, 0, 1)
+						setFromPercent(p)
+					end
+				end)
+			end
+			local function stopDrag()
+				if not dragging then
+					return
+				end
+				dragging = false
+				if dragConnection then
+					dragConnection:Disconnect()
+					dragConnection = nil
+				end
+			end
+			inputCapture.InputBegan:Connect(function(input)
+				if ((input.UserInputType == Enum.UserInputType.MouseButton1) or (input.UserInputType == Enum.UserInputType.Touch)) then
+					startDrag()
+				end
+			end)
+			thumb.InputBegan:Connect(function(input)
+				if ((input.UserInputType == Enum.UserInputType.MouseButton1) or (input.UserInputType == Enum.UserInputType.Touch)) then
+					startDrag()
+				end
+			end)
+			local function handleInputEnded(input)
+				if ((input.UserInputType == Enum.UserInputType.MouseButton1) or (input.UserInputType == Enum.UserInputType.Touch)) then
+					stopDrag()
+				end
+			end
+			UserInputService.InputEnded:Connect(handleInputEnded)
+			inputCapture.InputEnded:Connect(handleInputEnded)
+			thumb.InputEnded:Connect(handleInputEnded)
+			inputCapture.MouseButton1Click:Connect(function()
+				local mouse = UserInputService:GetMouseLocation()
+				local trackAbsPos = track.AbsolutePosition
+				local trackAbsSize = track.AbsoluteSize
+				local thumbWidth = thumb.AbsoluteSize.X
+				local thumbHalfWidth = thumbWidth / 2
+				local trackStart = trackAbsPos.X + thumbHalfWidth
+				local trackEnd = (trackAbsPos.X + trackAbsSize.X) - thumbHalfWidth
+				local trackLength = trackEnd - trackStart
+				if (trackLength > 0) then
+					local p = (mouse.X - trackStart) / trackLength
+					p = math.clamp(p, 0, 1)
+					setFromPercent(p)
+				end
+			end)
+			valueBox.FocusLost:Connect(function(enterPressed)
+				if internalUpdating then
+					return
+				end
+				local text = tostring(valueBox.Text or "")
+				local num = tonumber(text)
+				if not num then
+					internalUpdating = true
+					valueBox.Text = tostring(currentValue)
+					internalUpdating = false
+					return
+				end
+				num = math.clamp(num, minValue, maxValue)
+				num = math.floor(num)
+				local p = 0
+				if (maxValue ~= minValue) then
+					p = (num - minValue) / (maxValue - minValue)
+				end
+				setFromPercent(p)
+			end)
+			bg.AncestryChanged:Connect(function()
+				if not bg:IsDescendantOf(game) then
+					stopDrag()
+				end
+			end)
+			pcall(hideTextNodesIn, bg)
+			task.defer(function()
+				pcall(updateContentCanvas)
+			end)
+			local sliderObj = {UI=bg,Set=function(self, val)
+				local p = 0
+				if (maxValue ~= minValue) then
+					p = (val - minValue) / (maxValue - minValue)
+				end
+				setFromPercent(p)
+			end,Get=function(self)
+				return currentValue
+			end,Flag=flag}
+			return sliderObj
+		end
+		tab.CreateTextBox = function(self, opts)
+			opts = opts or {}
+			local name = opts.Name or opts.Label or "TextBox"
+			local placeholder = opts.Placeholder or "..."
+			local default = opts.Default or ""
+			local cb = opts.Callback
+			local flag = opts.Flag
+			local clearOnFocus = opts.ClearTextOnFocus == true
+			local innerPad = 8
+			local bg = new("Frame", {Parent=content,Size=UDim2.new(1, 0, 0, 44),BackgroundColor3=cfg.Theme.ElementBg,BackgroundTransparency=0.5,BorderSizePixel=0})
+			new("UICorner", {Parent=bg,CornerRadius=UDim.new(0, 8)})
+			new("UIPadding", {Parent=bg,PaddingLeft=UDim.new(0, innerPad),PaddingRight=UDim.new(0, innerPad),PaddingTop=UDim.new(0, innerPad - 2),PaddingBottom=UDim.new(0, innerPad - 2)})
+			local row = new("Frame", {Parent=bg,Size=UDim2.new(1, 0, 1, 0),BackgroundTransparency=1})
+			local label = new("TextLabel", {Parent=row,Text=tostring(name),Size=UDim2.new(1 - controlScale, -(innerPad * 2), 0, 28),Position=UDim2.new(0, 0, 0.5, 0),AnchorPoint=Vector2.new(0, 0.5),BackgroundTransparency=1,TextColor3=cfg.Theme.Text,Font=Enum.Font.SourceSansBold,TextSize=17,TextXAlignment=Enum.TextXAlignment.Left,TextYAlignment=Enum.TextYAlignment.Center})
+			local inputBox = new("TextBox", {Parent=row,Size=UDim2.new(controlScale, -innerPad, 0, 28),Position=UDim2.new(1, 0, 0.5, 0),AnchorPoint=Vector2.new(1, 0.5),BackgroundColor3=cfg.Theme.ControlBg,Text=tostring(default),PlaceholderText=tostring(placeholder),Font=Enum.Font.SourceSansBold,TextSize=17,TextColor3=cfg.Theme.Text,AutoLocalize=false,ClearTextOnFocus=clearOnFocus,BorderSizePixel=0,TextXAlignment=Enum.TextXAlignment.Center,TextYAlignment=Enum.TextYAlignment.Center})
+			new("UICorner", {Parent=inputBox,CornerRadius=UDim.new(0, 8)})
+			addConn(inputBox.FocusLost:Connect(function(enter)
+				local val = tostring(inputBox.Text or "")
+				if (enter and cb) then
+					pcall(cb, val)
+				end
+				if (flag and window.Flags[flag] and window.Flags[flag].Set) then
+					pcall(window.Flags[flag].Set, val)
+				end
+			end))
+			local instance = {UI=bg,Get=function()
+				return tostring(inputBox.Text or "")
+			end,Set=function(v)
+				inputBox.Text = ((v == nil) and "") or tostring(v)
+			end,Flag=flag}
+			if (flag and (type(flag) == "string")) then
+				registerFlag(flag, {Type="TextBox",Get=function()
+					return tostring(inputBox.Text or "")
+				end,Set=function(v)
+					inputBox.Text = ((v == nil) and "") or tostring(v)
+				end,UI=bg})
+			end
+			pcall(hideTextNodesIn, bg)
+			task.defer(function()
+				pcall(updateContentCanvas)
+			end)
+			return instance
+		end
+		tab.CreateLabel = function(self, opts)
+			opts = opts or {}
+			local text = opts.Text or opts.Name or "Label"
+			local textColor = opts.TextColor or cfg.Theme.Text
+			local textSize = opts.TextSize or 16
+			local font = opts.Font or Enum.Font.FredokaOne
+			local alignment = opts.Alignment or Enum.TextXAlignment.Left
+			local bgTransparency = ((opts.BackgroundTransparency == nil) and 1) or opts.BackgroundTransparency
+			local bgColor = opts.BackgroundColor or cfg.Theme.ElementBg
+			local padding = opts.Padding or 8
+			local bg = new("Frame", {Parent=content,Size=UDim2.new(1, 0, 0, 28),BackgroundColor3=bgColor,BackgroundTransparency=bgTransparency,BorderSizePixel=0})
+			new("UICorner", {Parent=bg,CornerRadius=UDim.new(0, 6)})
+			new("UIPadding", {Parent=bg,PaddingLeft=UDim.new(0, padding),PaddingRight=UDim.new(0, padding),PaddingTop=UDim.new(0, 4),PaddingBottom=UDim.new(0, 4)})
+			local label = new("TextLabel", {Parent=bg,Text=text,Size=UDim2.new(1, 0, 1, 0),Position=UDim2.new(0, 0, 0, 0),BackgroundTransparency=1,TextColor3=textColor,Font=font,TextSize=textSize,TextXAlignment=alignment,TextYAlignment=Enum.TextYAlignment.Center,TextWrapped=(opts.TextWrapped or false)})
+			if opts.RichText then
+				label.RichText = true
+			end
+			pcall(hideTextNodesIn, bg)
+			task.defer(function()
+				pcall(updateContentCanvas)
+			end)
+			return {UI=bg,Label=label,SetText=function(self, newText)
+				label.Text = tostring(newText or "")
+			end,SetColor=function(self, color)
+				if (typeof(color) == "Color3") then
+					label.TextColor3 = color
+				end
+			end,SetVisible=function(self, visible)
+				bg.Visible = visible
+			end}
+		end
+		tab.CreateLabelGroup = function(self, opts)
+			opts = opts or {}
+			local labels = opts.Labels or {}
+			local backgroundColor = opts.BackgroundColor or Color3.fromRGB(40, 40, 40)
+			local backgroundTransparency = opts.BackgroundTransparency or 0
+			local padding = opts.Padding or 10
+			local spacing = opts.Spacing or 6
+			local cornerRadius = opts.CornerRadius or UDim.new(0, 8)
+			local title = opts.Title
+			local showDivider = ((opts.ShowDivider == nil) and true) or opts.ShowDivider
+			local totalHeight = padding * 2
+			if title then
+				totalHeight = totalHeight + 32 + spacing
+			end
+			for _, labelOpts in ipairs(labels) do
+				totalHeight = totalHeight + (labelOpts.Height or 22) + spacing
+			end
+			totalHeight = totalHeight - spacing
+			local group = new("Frame", {Parent=content,Size=UDim2.new(1, 0, 0, totalHeight),BackgroundColor3=backgroundColor,BackgroundTransparency=backgroundTransparency,BorderSizePixel=0,Name="LabelGroup"})
+			new("UICorner", {Parent=group,CornerRadius=cornerRadius})
+			new("UIPadding", {Parent=group,PaddingLeft=UDim.new(0, padding),PaddingRight=UDim.new(0, padding),PaddingTop=UDim.new(0, padding),PaddingBottom=UDim.new(0, padding)})
+			local layout = new("UIListLayout", {Parent=group,SortOrder=Enum.SortOrder.LayoutOrder,Padding=UDim.new(0, spacing)})
+			local labelInstances = {}
+			local currentY = padding
+			local currentLayoutOrder = 0
+			if title then
+				local titleBg = new("Frame", {Parent=group,Size=UDim2.new(1, 0, 0, 32),BackgroundColor3=Color3.fromRGB(80, 80, 80),BorderSizePixel=0,LayoutOrder=currentLayoutOrder})
+				currentLayoutOrder = currentLayoutOrder + 1
+				new("UICorner", {Parent=titleBg,CornerRadius=UDim.new(0, 6)})
+				new("UIPadding", {Parent=titleBg,PaddingLeft=UDim.new(0, 8),PaddingRight=UDim.new(0, 8),PaddingTop=UDim.new(0, 4),PaddingBottom=UDim.new(0, 4)})
+				local titleLabel = new("TextLabel", {Parent=titleBg,Size=UDim2.new(1, 0, 1, 0),Position=UDim2.new(0, 0, 0, 0),BackgroundTransparency=1,Text=title,TextColor3=(opts.TitleColor or cfg.Theme.Accent or Color3.fromRGB(255, 255, 255)),Font=(opts.TitleFont or Enum.Font.FredokaOne),TextSize=(opts.TitleSize or 16),TextXAlignment=(opts.TitleAlignment or Enum.TextXAlignment.Center),TextYAlignment=Enum.TextYAlignment.Center,RichText=(opts.TitleRichText or false)})
+				table.insert(labelInstances, {Type="Title",Frame=titleBg,Label=titleLabel})
+				currentY = currentY + 32 + spacing
+				if showDivider then
+					local divider = new("Frame", {Parent=group,Size=UDim2.new(1, 0, 0, 1),BackgroundColor3=Color3.fromRGB(100, 100, 100),BorderSizePixel=0,LayoutOrder=currentLayoutOrder})
+					currentLayoutOrder = currentLayoutOrder + 1
+					table.insert(labelInstances, {Type="Divider",Frame=divider})
+					currentY = currentY + 1 + spacing
+				end
+			end
+			for i, labelOpts in ipairs(labels) do
+				local label = new("TextLabel", {Parent=group,Size=UDim2.new(1, 0, 0, labelOpts.Height or 22),BackgroundTransparency=1,Text=(labelOpts.Text or ""),TextColor3=(labelOpts.TextColor or cfg.Theme.Text or Color3.fromRGB(220, 220, 220)),Font=(labelOpts.Font or Enum.Font.FredokaOne),TextSize=(labelOpts.TextSize or 14),TextXAlignment=(labelOpts.Alignment or Enum.TextXAlignment.Left),TextYAlignment=Enum.TextYAlignment.Center,TextWrapped=(labelOpts.TextWrapped or false),RichText=(labelOpts.RichText or false),LayoutOrder=((currentLayoutOrder + i) - 1)})
+				if labelOpts.Icon then
+					label.Position = UDim2.new(0, 24, 0, 0)
+					label.Size = UDim2.new(1, -24, 0, labelOpts.Height or 22)
+					local icon = new("ImageLabel", {Parent=label.Parent,Size=UDim2.new(0, 18, 0, 18),Position=UDim2.new(0, 2, 0.5, 0),AnchorPoint=Vector2.new(0, 0.5),BackgroundTransparency=1,Image=labelOpts.Icon,ImageColor3=(labelOpts.IconColor or labelOpts.TextColor or cfg.Theme.Text),LayoutOrder=((currentLayoutOrder + i) - 1)})
+					table.insert(labelInstances, {Type="LabelWithIcon",Label=label,Icon=icon})
+				else
+					table.insert(labelInstances, {Type="Label",Label=label})
+				end
+			end
+			pcall(hideTextNodesIn, group)
+			task.defer(function()
+				pcall(updateContentCanvas)
+			end)
+			return {UI=group,Labels=labelInstances,SetTitle=function(self, newTitle)
+				if titleLabel then
+					titleLabel.Text = tostring(newTitle or "")
+				end
+			end,SetLabelText=function(self, index, text)
+				local labelIndex = 1
+				for i, item in ipairs(labelInstances) do
+					if ((item.Type == "Label") or (item.Type == "LabelWithIcon")) then
+						if (labelIndex == index) then
+							item.Label.Text = tostring(text or "")
+							return true
+						end
+						labelIndex = labelIndex + 1
+					end
+				end
+				return false
+			end,SetLabelColor=function(self, index, color)
+				if (typeof(color) ~= "Color3") then
+					return false
+				end
+				local labelIndex = 1
+				for i, item in ipairs(labelInstances) do
+					if ((item.Type == "Label") or (item.Type == "LabelWithIcon")) then
+						if (labelIndex == index) then
+							item.Label.TextColor3 = color
+							if item.Icon then
+								item.Icon.ImageColor3 = color
+							end
+							return true
+						end
+						labelIndex = labelIndex + 1
+					end
+				end
+				return false
+			end,SetBackgroundColor=function(self, color)
+				if (typeof(color) == "Color3") then
+					group.BackgroundColor3 = color
+				end
+			end,SetTitleBackgroundColor=function(self, color)
+				if (typeof(color) == "Color3") then
+					for _, item in ipairs(labelInstances) do
+						if ((item.Type == "Title") and item.Frame) then
+							item.Frame.BackgroundColor3 = color
+						end
+					end
+				end
+			end,AddLabel=function(self, labelOpts)
+				labelOpts = labelOpts or {}
+				local index = #labels + 1
+				table.insert(labels, labelOpts)
+				local label = new("TextLabel", {Parent=group,Size=UDim2.new(1, 0, 0, labelOpts.Height or 22),BackgroundTransparency=1,Text=(labelOpts.Text or ""),TextColor3=(labelOpts.TextColor or cfg.Theme.Text),Font=(labelOpts.Font or Enum.Font.SourceSans),TextSize=(labelOpts.TextSize or 14),TextXAlignment=(labelOpts.Alignment or Enum.TextXAlignment.Left),TextYAlignment=Enum.TextYAlignment.Center,TextWrapped=(labelOpts.TextWrapped or false),RichText=(labelOpts.RichText or false),LayoutOrder=((currentLayoutOrder + index) - 1)})
+				local newHeight = totalHeight + (labelOpts.Height or 22) + spacing
+				group.Size = UDim2.new(1, 0, 0, newHeight)
+				totalHeight = newHeight
+				table.insert(labelInstances, {Type="Label",Label=label})
+				pcall(updateContentCanvas)
+				return {Label=label,SetText=function(self, text)
+					label.Text = tostring(text or "")
+				end,SetColor=function(self, color)
+					if (typeof(color) == "Color3") then
+						label.TextColor3 = color
+					end
+				end}
+			end,Clear=function(self)
+				for _, item in ipairs(labelInstances) do
+					if item.Frame then
+						safeDestroy(item.Frame)
+					end
+					if item.Label then
+						safeDestroy(item.Label)
+					end
+					if item.Icon then
+						safeDestroy(item.Icon)
+					end
+				end
+				labelInstances = {}
+				group.Size = UDim2.new(1, 0, 0, padding * 2)
+				pcall(updateContentCanvas)
+			end,UpdateAll=function(self, newLabels)
+				for _, item in ipairs(labelInstances) do
+					if ((item.Type ~= "Title") and (item.Type ~= "Divider")) then
+						if item.Frame then
+							safeDestroy(item.Frame)
+						end
+						if item.Label then
+							safeDestroy(item.Label)
+						end
+						if item.Icon then
+							safeDestroy(item.Icon)
+						end
+					end
+				end
+				local temp = {}
+				for _, item in ipairs(labelInstances) do
+					if ((item.Type == "Title") or (item.Type == "Divider")) then
+						table.insert(temp, item)
+					end
+				end
+				labelInstances = temp
+				labels = newLabels or {}
+				for i, labelOpts in ipairs(labels) do
+					local label = new("TextLabel", {Parent=group,Size=UDim2.new(1, 0, 0, labelOpts.Height or 22),BackgroundTransparency=1,Text=(labelOpts.Text or ""),TextColor3=(labelOpts.TextColor or cfg.Theme.Text),Font=(labelOpts.Font or Enum.Font.SourceSans),TextSize=(labelOpts.TextSize or 14),TextXAlignment=(labelOpts.Alignment or Enum.TextXAlignment.Left),TextYAlignment=Enum.TextYAlignment.Center,LayoutOrder=((currentLayoutOrder + i) - 1)})
+					table.insert(labelInstances, {Type="Label",Label=label})
+				end
+				local newHeight = padding * 2
+				if title then
+					newHeight = newHeight + 32 + spacing
+					if showDivider then
+						newHeight = newHeight + 1 + spacing
+					end
+				end
+				for _, labelOpts in ipairs(labels) do
+					newHeight = newHeight + (labelOpts.Height or 22) + spacing
+				end
+				newHeight = newHeight - spacing
+				group.Size = UDim2.new(1, 0, 0, newHeight)
+				pcall(updateContentCanvas)
+			end}
+		end
+		table.insert(tabList, tab)
+		updateTabsLayout()
+		addConn(btn.MouseButton1Click:Connect(function()
+			for _, t in ipairs(tabList) do
+				if (t and t.Content) then
+					t.Content.Visible = false
+				end
+				if (t and t.Button) then
+					t.Selected = false
+					tween(t.Button, {BackgroundColor3=cfg.Theme.TabBg}, 0.14)
+					t.Button.TextColor3 = darkTabText
+				end
+			end
+			tab.Button.TextColor3 = Color3.fromRGB(255, 255, 255)
+			tween(tab.Button, {BackgroundColor3=brightenColor(cfg.Theme.TabBg, 0.14)}, 0.14)
+			tab.Selected = true
+			pcall(function()
+				if window then
+					window._activeTabIndex = idx
+					window._savedState.active = idx
+				end
+			end)
+			tab.Content.Visible = true
+			tab.Content.Position = UDim2.new(0, 0, 0, 6)
+			tab.Content.CanvasPosition = Vector2.new(0, 0)
+			task.spawn(function()
+				pcall(function()
+					tab:_waiter()
+				end)
+				tween(tab.Content, {Position=UDim2.new(0, 0, 0, 0)}, 0.36, Enum.EasingStyle.Back, Enum.EasingDirection.Out)
+			end)
+		end))
+		if (#tabList == 1) then
+			tab.Content.Visible = true
+			task.spawn(function()
+				pcall(tab._waiter)
+			end)
+			tab.Content.Position = UDim2.new(0, 0, 0, 0)
+			tween(tab.Button, {BackgroundColor3=brightenColor(cfg.Theme.TabBg, 0.14)}, 0.12)
+			tab.Button.TextColor3 = Color3.fromRGB(255, 255, 255)
+			tab.Selected = true
+			pcall(function()
+				if window then
+					window._activeTabIndex = 1
+					window._savedState.active = 1
+				end
+			end)
+		end
+		return tab
+	end
+	local function makeDraggable(gui, handle)
+		handle = handle or gui
+		pcall(function()
+			handle.Active = true
+		end)
+		local dragging, dragInput, dragStart, startPos
+		local c1 = handle.InputBegan:Connect(function(input)
+			if preventWindowDrag then
+				return
+			end
+			if ((input.UserInputType == Enum.UserInputType.MouseButton1) or (input.UserInputType == Enum.UserInputType.Touch)) then
+				dragging = true
+				dragStart = input.Position
+				startPos = gui.Position
+				local endedConn
+				endedConn = input.Changed:Connect(function()
+					if (input.UserInputState == Enum.UserInputState.End) then
+						dragging = false
+						if endedConn then
+							pcall(function()
+								endedConn:Disconnect()
+							end)
+						end
+					end
+				end)
+				addConn(endedConn)
+			end
+		end)
+		addConn(c1)
+		local c2 = handle.InputChanged:Connect(function(input)
+			if ((input.UserInputType == Enum.UserInputType.MouseMovement) or (input.UserInputType == Enum.UserInputType.Touch)) then
+				dragInput = input
+			end
+		end)
+		addConn(c2)
+		local c3 = UserInputService.InputChanged:Connect(function(input)
+			if (dragging and (input == dragInput)) then
+				local delta = input.Position - dragStart
+				gui.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + delta.X, startPos.Y.Scale, startPos.Y.Offset + delta.Y)
+			end
+		end)
+		addConn(c3)
+	end
+	makeDraggable(Frame)
+	makeDraggable(InfoBar)
+	makeDraggable(HwanBtn)
+	window._dropdownInstances = window._dropdownInstances or {}
+	window._dropdownStates = window._dropdownStates or {}
+	window._activeTabIndex = window._activeTabIndex or 1
+	window._savedState = window._savedState or {active=nil,dropdowns={},dropdownSelections={}}
+	local pingSamples = {}
+	local maxPingSamples = 30
+	local pingTimer = 0
+	local pingInterval = 0.25
+	local fpsSamples = {}
+	local maxFpsSamples = 10
+	local renderConn = RunService.RenderStepped:Connect(function(dt)
+		pcall(function()
+			if (not Frame or (Frame and not Frame.Visible)) then
+				return
+			end
+			if (titleGrad and titleGrad.Parent) then
+				titleGrad.Rotation = (titleGrad.Rotation + 0.9) % 360
+			end
+			if (hwanTopGrad and hwanTopGrad.Parent) then
+				hwanTopGrad.Rotation = (hwanTopGrad.Rotation + 1.6) % 360
+			end
+			if (hwanBottomGrad and hwanBottomGrad.Parent) then
+				hwanBottomGrad.Rotation = (hwanBottomGrad.Rotation + 1.6) % 360
+			end
+		end)
+		pcall(function()
+			if not refs.InfoText then
+				return
+			end
+			local timeStr = os.date("%H:%M:%S")
+			local fpsSample = 0
+			if (dt > 0) then
+				fpsSample = 1 / dt
+			end
+			table.insert(fpsSamples, fpsSample)
+			if (#fpsSamples > maxFpsSamples) then
+				table.remove(fpsSamples, 1)
+			end
+			local sumF = 0
+			for _, v in ipairs(fpsSamples) do
+				sumF = sumF + v
+			end
+			local meanF = ((#fpsSamples > 0) and (sumF / #fpsSamples)) or 0
+			local fps = math.floor(meanF + 0.5)
+			pingTimer = pingTimer + dt
+			local pingMs = 0
+			if (pingTimer >= pingInterval) then
+				pingTimer = pingTimer - pingInterval
+				local ok, pingValue = pcall(function()
+					return game:GetService("Stats").Network.ServerStatsItem["Data Ping"]
+				end)
+				if (ok and pingValue and (typeof(pingValue.GetValueString) == "function")) then
+					local ok2, str = pcall(function()
+						return pingValue:GetValueString()
+					end)
+					if (ok2 and str) then
+						pingMs = tonumber(str:match("%d+")) or 0
+					end
+				end
+				table.insert(pingSamples, pingMs)
+				if (#pingSamples > maxPingSamples) then
+					table.remove(pingSamples, 1)
+				end
+			elseif (#pingSamples > 0) then
+				pingMs = pingSamples[#pingSamples]
+			end
+			local mean, std = 0, 0
+			if (#pingSamples > 0) then
+				local sum = 0
+				for _, v in ipairs(pingSamples) do
+					sum = sum + v
+				end
+				mean = sum / #pingSamples
+				local sqsum = 0
+				for _, v in ipairs(pingSamples) do
+					sqsum = sqsum + ((v - mean) * (v - mean))
+				end
+				std = math.sqrt(sqsum / #pingSamples)
+			end
+			local cvPercent = 0
+			if (mean > 0) then
+				cvPercent = math.floor(((std / mean) * 100) + 0.5)
+			end
+			if refs.InfoText then
+				refs.InfoText.Text = string.format("TIME : %s   |   FPS: %d   |   PING: %d ms (%d%%CV)", timeStr, fps, pingMs, cvPercent)
+			end
+		end)
+	end)
+	addConn(renderConn)
+	local notifQueue = {}
+	local activeNotifs = {}
+	local maxActiveNotifs = 5
+	local notifGap = 8
+	local defaultNotifDuration = 1.5
+	local function repositionNotifs()
+		for i, entry in ipairs(activeNotifs) do
+			local notif = entry.frame
+			local h = entry.height or notif.AbsoluteSize.Y
+			local targetY = -96 - ((i - 1) * (h + notifGap))
+			pcall(function()
+				if (notif and notif.Parent) then
+					tween(notif, {Position=UDim2.new(1, -(16 + entry.width), 1, targetY)}, 0.18, Enum.EasingStyle.Sine, Enum.EasingDirection.Out)
+				end
+			end)
+		end
+	end
+	local function removeActiveNotif(index)
+		local entry = activeNotifs[index]
+		if not entry then
+			return
+		end
+		local nf = entry.frame
+		if (nf and nf.Parent) then
+			pcall(function()
+				setTransparencyOnDescendants(nf, 1, 0.12)
+			end)
+			for _, ch in ipairs(nf:GetChildren()) do
+				if ch:IsA("UIStroke") then
+					pcall(function()
+						ch.Enabled = false
+					end)
+				end
+			end
+			tween(nf, {BackgroundTransparency=1}, 0.12)
+			task.wait(0.12)
+			safeDestroy(nf)
+		end
+		table.remove(activeNotifs, index)
+		pcall(repositionNotifs)
+	end
+	local function showNotification(text, duration)
+		text = tostring(text or "")
+		duration = tonumber(duration) or defaultNotifDuration
+		if (#activeNotifs < maxActiveNotifs) then
+			local innerPad = 12
+			local minW, maxW = 160, 520
+			local maxH = 400
+			local headerFont = TitleMain.Font
+			local headerSize = 18
+			local bodyFont = Enum.Font.SourceSans
+			local bodySize = 16
+			local textSize = TextService:GetTextSize(text, bodySize, bodyFont, Vector2.new(maxW - (innerPad * 2), maxH))
+			local desiredW = clampVal(math.ceil(textSize.X + (innerPad * 2)), minW, maxW)
+			local bodyH = math.ceil(textSize.Y)
+			local headerW = TextService:GetTextSize(cfg.Title or "", headerSize, headerFont, Vector2.new(desiredW - (innerPad * 2), 100)).X
+			local notifWidth = math.max(desiredW, math.ceil(headerW + (innerPad * 2)))
+			local notifHeight = math.max(48, bodyH + headerSize + (innerPad * 2))
+			local yOffset = -96 - (#activeNotifs * (notifHeight + notifGap))
+			local nframe = new("Frame", {Parent=screenGui,Size=UDim2.new(0, notifWidth, 0, notifHeight),Position=UDim2.new(1, -(16 + notifWidth), 1, yOffset),BackgroundColor3=cfg.Theme.InfoInner,BorderSizePixel=0,ZIndex=220})
+			new("UICorner", {Parent=nframe,CornerRadius=UDim.new(0, 8)})
+			local notifStroke = new("UIStroke", {Parent=nframe})
+			notifStroke.Thickness = 2
+			notifStroke.Transparency = 0.8
+			notifStroke.Color = Color3.fromRGB(255, 255, 255)
+			local inner = new("Frame", {Parent=nframe,Size=UDim2.new(1, -innerPad * 2, 1, -innerPad * 2),Position=UDim2.new(0, innerPad, 0, innerPad),BackgroundTransparency=1,ZIndex=221})
+			new("UICorner", {Parent=inner,CornerRadius=UDim.new(0, 6)})
+			local header = new("TextLabel", {Parent=inner,Size=UDim2.new(1, 0, 0, headerSize),Position=UDim2.new(0, 0, 0, 0),BackgroundTransparency=1,Font=headerFont,TextSize=headerSize,Text=cfg.Title,TextXAlignment=Enum.TextXAlignment.Left,TextColor3=cfg.Theme.Text,ZIndex=222})
+			header.TextTransparency = 1
+			local body = new("TextLabel", {Parent=inner,Size=UDim2.new(1, 0, 0, bodyH),Position=UDim2.new(0, 0, 0, headerSize),BackgroundTransparency=1,Font=bodyFont,TextSize=bodySize,Text=text,TextXAlignment=Enum.TextXAlignment.Left,TextYAlignment=Enum.TextYAlignment.Top,TextColor3=cfg.Theme.Text,ZIndex=222,TextWrapped=true})
+			body.AutomaticSize = Enum.AutomaticSize.None
+			body.TextTransparency = 1
+			nframe.BackgroundTransparency = 1
+			pcall(function()
+				setTransparencyOnDescendants(nframe, 1, 0)
+			end)
+			tween(nframe, {BackgroundTransparency=0}, 0.18, Enum.EasingStyle.Sine, Enum.EasingDirection.Out)
+			task.delay(0.06, function()
+				pcall(function()
+					TweenService:Create(header, TweenInfo.new(0.18, Enum.EasingStyle.Sine, Enum.EasingDirection.Out), {TextTransparency=0}):Play()
+					TweenService:Create(body, TweenInfo.new(0.18, Enum.EasingStyle.Sine, Enum.EasingDirection.Out), {TextTransparency=0}):Play()
+				end)
+			end)
+			table.insert(activeNotifs, {frame=nframe,width=notifWidth,height=notifHeight})
+			repositionNotifs()
+			task.delay(duration, function()
+				if (not nframe or not nframe.Parent) then
+					for i, e in ipairs(activeNotifs) do
+						if (e.frame == nframe) then
+							table.remove(activeNotifs, i)
+							break
+						end
+					end
+					pcall(repositionNotifs)
+					return
+				end
+				pcall(function()
+					if (inner and inner.Parent) then
+						inner.Visible = false
+					end
+					pcall(function()
+						setTransparencyOnDescendants(nframe, 1, 0)
+					end)
+					for _, ch in ipairs(nframe:GetChildren()) do
+						if ch:IsA("UIStroke") then
+							pcall(function()
+								ch.Enabled = false
+							end)
+						end
+					end
+					tween(nframe, {BackgroundTransparency=1}, 0.12)
+					task.wait(0.12)
+					for i, e in ipairs(activeNotifs) do
+						if (e.frame == nframe) then
+							table.remove(activeNotifs, i)
+							break
+						end
+					end
+					pcall(repositionNotifs)
+					safeDestroy(nframe)
+				end)
+			end)
+		else
+			table.insert(notifQueue, {text=text,duration=duration})
+		end
+	end
+	local finalSize = UDim2.new(0, cfg.Width, 0, cfg.Height)
+	local function configFileName()
+		local cfgs = cfg.ConfigurationSaving or {}
+		local fname = cfgs.FileName or cfg.Title or "HwanConfig"
+		if (cfgs.FolderName and (cfgs.FolderName ~= "")) then
+			return cfgs.FolderName .. "/" .. fname .. ".json"
+		end
+		return fname .. ".json"
+	end
+	local function saveConfig()
+		if (not cfg.ConfigurationSaving or not cfg.ConfigurationSaving.Enabled) then
+			return
+		end
+		local out = {}
+		for flagName, meta in pairs(window.Flags) do
+			local ok, val = pcall(function()
+				if (type(meta.Get) == "function") then
+					return meta.Get()
+				end
+				return meta.Value
+			end)
+			if (ok and (val ~= nil)) then
+				if ((typeof(val) == "EnumItem") and (val.EnumType == Enum.KeyCode)) then
+					out[flagName] = {__enum="KeyCode",name=val.Name}
+				elseif (typeof(val) == "Color3") then
+					out[flagName] = {__color=color3ToHex(val)}
+				elseif ((type(val) == "number") or (type(val) == "string") or (type(val) == "boolean") or (type(val) == "table")) then
+					out[flagName] = val
+				else
+					dbgWarn("Skipping unsupported flag type for saving:", flagName, typeof(val))
+				end
+			end
+		end
+		local ok, encoded = pcall(function()
+			return HttpService:JSONEncode(out)
+		end)
+		if (ok and encoded) then
+			writeFileSafe(configFileName(), encoded)
+		else
+			dbgWarn("Failed to JSONEncode config for saving.")
+		end
+	end
+	local function loadConfig()
+		if (not cfg.ConfigurationSaving or not cfg.ConfigurationSaving.Enabled) then
+			return
+		end
+		local s = readFileSafe(configFileName())
+		if not s then
+			return
+		end
+		local ok, decoded = pcall(function()
+			return HttpService:JSONDecode(s)
+		end)
+		if (not ok or (type(decoded) ~= "table")) then
+			return
+		end
+		for flagName, val in pairs(decoded) do
+			local meta = window.Flags[flagName]
+			if (meta and (type(meta.Set) == "function")) then
+				if ((type(val) == "table") and (val.__enum == "KeyCode") and val.name) then
+					local enumVal = Enum.KeyCode:FindFirstChild(val.name) or Enum.KeyCode[val.name]
+					pcall(meta.Set, enumVal)
+				elseif ((type(val) == "table") and val.__color and (type(val.__color) == "string")) then
+					local hex = val.__color:gsub("#", "")
+					if (#hex == 6) then
+						local r = tonumber(hex:sub(1, 2), 16) / 255
+						local g = tonumber(hex:sub(3, 4), 16) / 255
+						local b = tonumber(hex:sub(5, 6), 16) / 255
+						pcall(meta.Set, Color3.new(r, g, b))
+					end
+				else
+					pcall(meta.Set, val)
+				end
+			end
+		end
+	end
+	local function createHWIDUI(onAuth)
+		local hs = cfg.HWIDSettings or {}
+		hs.Title = hs.Title or "HWAN HUB"
+		hs.Subtitle = hs.Subtitle or "HWID SYSTEM"
+		hs.FileName = hs.FileName or "hwanhub_status"
+		hs.SaveStatus = hs.SaveStatus == true
+		hs.HWIDLock = hs.HWIDLock == true
+		hs.AutoRefresh = hs.AutoRefresh == true
+		hs.RefreshInterval = hs.RefreshInterval or 10
+		local userHWID = Hwan.HWID:GetEncryptedHWID()
+		local allowedHWIDs = {}
+		local function addAllowedHWID(hwid)
+			if not hwid then
+				return
+			end
+			hwid = tostring(hwid):gsub("^%s*(.-)%s*$", "%1")
+			if ((hwid ~= "") and not hwid:match("^%s*#")) then
+				allowedHWIDs[hwid] = true
+			end
+		end
+		for _, hwid in ipairs(hs.HWIDList or {}) do
+			addAllowedHWID(hwid)
+		end
+		local function fetchHWIDsFromUrl()
+			if (not hs.HWIDUrl or (hs.HWIDUrl == "")) then
+				return
+			end
+			local content = try_http_get(hs.HWIDUrl)
+			if content then
+				for line in content:gmatch("[^\r\n]+") do
+					addAllowedHWID(line)
+				end
+			end
+		end
+		task.spawn(fetchHWIDsFromUrl)
+		local isVerified = false
+		local inAllowedList = allowedHWIDs[userHWID] or false
+		if hs.SaveStatus then
+			local saved = readFileSafe(hs.FileName)
+			if (saved and (saved == "VERIFIED")) then
+				isVerified = inAllowedList
+				if not inAllowedList then
+					writeFileSafe(hs.FileName, "NOT VERIFIED")
+					showNotification("HWID expired. Please contact the admin.")
+				end
+			else
+				isVerified = inAllowedList
+			end
+		else
+			isVerified = inAllowedList
+		end
+		local hwidFrame = new("Frame", {Parent=screenGui,Name="HWIDSystem",Size=UDim2.new(0, 477, 0, 193),Position=UDim2.new(0.5, -477 / 2, 0.5, -188 / 2),BackgroundColor3=cfg.Theme.Main,BorderSizePixel=0,Active=true})
+		new("UICorner", {Parent=hwidFrame,CornerRadius=UDim.new(0, 12)})
+		local frameStroke = new("UIStroke", {Parent=hwidFrame,Thickness=2,Transparency=0.8,Color=Color3.fromRGB(255, 255, 255)})
+		local profileBg = new("Frame", {Parent=hwidFrame,Size=UDim2.new(0, 120, 0, 171),Position=UDim2.new(0, 10, 0, 11),BackgroundColor3=cfg.Theme.TabBg,BackgroundTransparency=0.5,BorderSizePixel=0})
+		new("UICorner", {Parent=profileBg,CornerRadius=UDim.new(0, 8)})
+		new("UIPadding", {Parent=profileBg,PaddingLeft=UDim.new(0, 8),PaddingRight=UDim.new(0, 8),PaddingTop=UDim.new(0, 8)})
+		local avatarBg = new("Frame", {Parent=profileBg,Size=UDim2.new(0, 104, 0, 105),Position=UDim2.new(0.5, 0, 0, 0),AnchorPoint=Vector2.new(0.5, 0),BackgroundColor3=cfg.Theme.ControlBg,BorderSizePixel=0})
+		new("UICorner", {Parent=avatarBg,CornerRadius=UDim.new(0, 8)})
+		local avatarImg = new("ImageLabel", {Parent=avatarBg,Size=UDim2.new(0.8, 0, 0.8, 0),Position=UDim2.new(0.5, 0, 0.5, 0),AnchorPoint=Vector2.new(0.5, 0.5),BackgroundColor3=Color3.fromRGB(255, 255, 255),BorderSizePixel=0,Image="rbxasset://textures/ui/GuiImagePlaceholder.png"})
+		new("UICorner", {Parent=avatarImg,CornerRadius=UDim.new(0, 6)})
+		task.spawn(function()
+			local userId = LocalPlayer.UserId
+			local thumbType = Enum.ThumbnailType.HeadShot
+			local thumbSize = Enum.ThumbnailSize.Size420x420
+			local content, isReady = game:GetService("Players"):GetUserThumbnailAsync(userId, thumbType, thumbSize)
+			if isReady then
+				avatarImg.Image = content
+			end
+		end)
+		local username = LocalPlayer.Name
+		if (#username > 10) then
+			username = string.sub(username, 1, 10) .. "..."
+		end
+		new("TextLabel", {Parent=profileBg,Size=UDim2.new(1, -16, 0, 20),Position=UDim2.new(0.048, 0, 0.644, 0),BackgroundTransparency=1,Font=Enum.Font.FredokaOne,Text=("@" .. username),TextColor3=cfg.Theme.Text,TextSize=15,TextYAlignment=Enum.TextYAlignment.Center,TextXAlignment=Enum.TextXAlignment.Center})
+		local statusPad = new("Frame", {Parent=profileBg,Size=UDim2.new(0, 104, 0, 24),Position=UDim2.new(0.5, 0, 0.801, 0),AnchorPoint=Vector2.new(0.5, 0),BackgroundColor3=Color3.fromRGB(80, 80, 80),BorderSizePixel=0})
+		new("UICorner", {Parent=statusPad,CornerRadius=UDim.new(0, 8)})
+		local statusLabel = new("TextLabel", {Parent=statusPad,Size=UDim2.new(1, 0, 1, 0),BackgroundTransparency=1,Font=Enum.Font.FredokaOne,Text=((isVerified and "VERIFIED") or "NOT VERIFIED"),TextColor3=((isVerified and Color3.fromRGB(0, 157, 0)) or Color3.fromRGB(206, 0, 7)),TextSize=14,TextYAlignment=Enum.TextYAlignment.Center,TextXAlignment=Enum.TextXAlignment.Center})
+		local systemBg = new("Frame", {Parent=hwidFrame,Size=UDim2.new(0, 318, 0, 172),Position=UDim2.new(0, 149, 0, 10),BackgroundColor3=cfg.Theme.TabBg,BackgroundTransparency=0.5,BorderSizePixel=0})
+		new("UICorner", {Parent=systemBg,CornerRadius=UDim.new(0, 8)})
+		new("UIPadding", {Parent=systemBg,PaddingLeft=UDim.new(0, 8),PaddingRight=UDim.new(0, 8),PaddingTop=UDim.new(0, 8)})
+		local titleLabel = new("TextLabel", {Parent=systemBg,Size=UDim2.new(1, 0, 0, 44),Position=UDim2.new(0.5, 0, 0.026, 2),AnchorPoint=Vector2.new(0.5, 0),BackgroundTransparency=1,Font=Enum.Font.LuckiestGuy,Text=(hs.Title:match("(.+)%s|") or hs.Title or "HWAN HUB"),TextColor3=cfg.Theme.Accent,TextSize=48,TextStrokeTransparency=0,TextXAlignment=Enum.TextXAlignment.Center})
+		local titleGradient = new("UIGradient", {Parent=titleLabel,Color=ColorSequence.new({ColorSequenceKeypoint.new(0, Color3.fromRGB(255, 255, 255)),ColorSequenceKeypoint.new(0.5, Color3.fromRGB(120, 120, 120)),ColorSequenceKeypoint.new(1, Color3.fromRGB(0, 0, 0))}),Rotation=12})
+		addConn(RunService.RenderStepped:Connect(function(dt)
+			if titleGradient then
+				titleGradient.Rotation = (titleGradient.Rotation + 0.9) % 360
+			end
+		end))
+		new("TextLabel", {Parent=systemBg,Size=UDim2.new(1, 0, 0, 20),Position=UDim2.new(0.5, 0, 0.033, 43),AnchorPoint=Vector2.new(0.5, 0),BackgroundTransparency=1,Font=Enum.Font.FredokaOne,Text=hs.Subtitle,TextColor3=cfg.Theme.Text,TextSize=18,TextYAlignment=Enum.TextYAlignment.Top,TextXAlignment=Enum.TextXAlignment.Center})
+		local hwidBox = new("TextBox", {Parent=systemBg,Size=UDim2.new(1.051, -16, 0.2, 0),Position=UDim2.new(0.499, 0, 0.584, 0),AnchorPoint=Vector2.new(0.5, 0.5),BackgroundColor3=cfg.Theme.ControlBg,Text=((isVerified and userHWID) or "YOUR HWID"),PlaceholderText="Press GET HWID to see your HWID",Font=Enum.Font.SourceSans,TextSize=14,TextColor3=((isVerified and cfg.Theme.Text) or Color3.fromRGB(150, 150, 150)),ClearTextOnFocus=false,TextEditable=false,TextWrapped=true})
+		new("UICorner", {Parent=hwidBox,CornerRadius=UDim.new(0, 6)})
+		local getHwidBtn = new("TextButton", {Parent=systemBg,Size=UDim2.new(0.45, -8, 0.2, 0),Position=UDim2.new(0.212, 0, 0.848, 0),AnchorPoint=Vector2.new(0.5, 0.5),BackgroundColor3=cfg.Theme.ControlBg,Text="GET HWID",Font=Enum.Font.SourceSansBold,TextSize=16,TextColor3=cfg.Theme.Text,AutoButtonColor=false})
+		new("UICorner", {Parent=getHwidBtn,CornerRadius=UDim.new(0, 6)})
+		local actionBtn = new("TextButton", {Parent=systemBg,Size=UDim2.new(0.45, -8, 0.2, 0),Position=UDim2.new(0.786, 0, 0.848, 0),AnchorPoint=Vector2.new(0.5, 0.5),BackgroundColor3=((isVerified and Color3.fromRGB(0, 157, 0)) or cfg.Theme.ControlBg),Text=((isVerified and "ENTER SCRIPT") or "CHECK HWID"),Font=Enum.Font.SourceSansBold,TextSize=16,TextColor3=cfg.Theme.Text,AutoButtonColor=false})
+		new("UICorner", {Parent=actionBtn,CornerRadius=UDim.new(0, 6)})
+		local verticalDivider = new("Frame", {Parent=hwidFrame,Size=UDim2.new(0, 5, 0, 140),Position=UDim2.new(0, 137, 0, 27),BackgroundColor3=cfg.Theme.ControlBg,BorderSizePixel=0})
+		new("UICorner", {Parent=verticalDivider,CornerRadius=UDim.new(0, 2)})
+		local function copyHWID()
+			hwidBox.Text = userHWID
+			hwidBox.TextColor3 = cfg.Theme.Text
+			local copied = false
+			local methods = {function()
+				if setclipboard then
+					setclipboard(userHWID)
+					return true
+				end
+			end,function()
+				if toclipboard then
+					toclipboard(userHWID)
+					return true
+				end
+			end,function()
+				if write_clipboard then
+					write_clipboard(userHWID)
+					return true
+				end
+			end,function()
+				if (clipboard and (type(clipboard.set) == "function")) then
+					clipboard.set(userHWID)
+					return true
+				end
+			end,function()
+				if pcall(function()
+					game:GetService("UserInputService"):SetClipboard(userHWID)
+				end) then
+					return true
+				end
+			end}
+			for _, method in ipairs(methods) do
+				local success, result = pcall(method)
+				if (success and result) then
+					copied = true
+					break
+				end
+			end
+			if copied then
+				showNotification("HWID copied to clipboard.")
+			else
+				showNotification("Failed to copy HWID.")
+			end
+			return copied
+		end
+		local function checkHWID()
+			fetchHWIDsFromUrl()
+			local nowVerified = allowedHWIDs[userHWID] or false
+			if nowVerified then
+				isVerified = true
+				statusLabel.Text = "VERIFIED"
+				statusLabel.TextColor3 = Color3.fromRGB(0, 157, 0)
+				actionBtn.Text = "ENTER SCRIPT"
+				actionBtn.BackgroundColor3 = Color3.fromRGB(0, 157, 0)
+				hwidBox.Text = userHWID
+				hwidBox.TextColor3 = cfg.Theme.Text
+				if hs.SaveStatus then
+					writeFileSafe(hs.FileName, "VERIFIED")
+				end
+				showNotification("Access granted! Loading script...")
+				task.wait(1)
+				onAuth()
+				hwidFrame:Destroy()
+			else
+				showNotification("HWID not verified. Please contact an admin.")
+				local originalColor = actionBtn.BackgroundColor3
+				tween(actionBtn, {BackgroundColor3=Color3.fromRGB(206, 0, 7)}, 0.2)
+				task.wait(0.5)
+				tween(actionBtn, {BackgroundColor3=originalColor}, 0.2)
+			end
+		end
+		local function updateStatus()
+			fetchHWIDsFromUrl()
+			local currentStatus = allowedHWIDs[userHWID] or false
+			if hs.SaveStatus then
+				local saved = readFileSafe(hs.FileName)
+				if (saved and (saved == "VERIFIED")) then
+					if not currentStatus then
+						writeFileSafe(hs.FileName, "NOT VERIFIED")
+						currentStatus = false
+						showNotification("HWID expired. Please contact the admin.")
+					else
+						currentStatus = true
+					end
+				end
+			end
+			isVerified = currentStatus
+			statusLabel.Text = (isVerified and "VERIFIED") or "NOT VERIFIED"
+			statusLabel.TextColor3 = (isVerified and Color3.fromRGB(0, 157, 0)) or Color3.fromRGB(206, 0, 7)
+			actionBtn.Text = (isVerified and "ENTER SCRIPT") or "CHECK HWID"
+			actionBtn.BackgroundColor3 = (isVerified and Color3.fromRGB(0, 157, 0)) or cfg.Theme.ControlBg
+			hwidBox.Text = (isVerified and userHWID) or "YOUR HWID"
+			hwidBox.TextColor3 = (isVerified and cfg.Theme.Text) or Color3.fromRGB(150, 150, 150)
+		end
+		getHwidBtn.MouseButton1Click:Connect(function()
+			copyHWID()
+			tween(getHwidBtn, {BackgroundColor3=brightenColor(cfg.Theme.ControlBg, 0.2)}, 0.1)
+			task.wait(0.1)
+			tween(getHwidBtn, {BackgroundColor3=cfg.Theme.ControlBg}, 0.1)
+		end)
+		actionBtn.MouseButton1Click:Connect(function()
+			if isVerified then
+				showNotification("Access granted! Loading script...")
+				task.wait(0.5)
+				onAuth()
+				hwidFrame:Destroy()
+			else
+				checkHWID()
+				tween(actionBtn, {BackgroundColor3=brightenColor(cfg.Theme.ControlBg, 0.2)}, 0.1)
+				task.wait(0.1)
+				tween(actionBtn, {BackgroundColor3=cfg.Theme.ControlBg}, 0.1)
+			end
+		end)
+		if isVerified then
+			task.spawn(function()
+				task.wait(1)
+				showNotification("HWID already verified. Access granted.")
+			end)
+		else
+			task.spawn(function()
+				task.wait(0.5)
+				showNotification("Send your HWID to an admin to request access")
+			end)
+		end
+		if (hs.AutoRefresh and hs.HWIDUrl and (hs.HWIDUrl ~= "")) then
+			local refreshThread
+			refreshThread = task.spawn(function()
+				while task.wait(hs.RefreshInterval) do
+					if (not hwidFrame or not hwidFrame.Parent) then
+						break
+					end
+					updateStatus()
+				end
+			end)
+			table.insert(conns, {Disconnect=function()
+				if refreshThread then
+					task.cancel(refreshThread)
+				end
+			end})
+		end
+		makeDraggable(hwidFrame)
+	end
+	local _origUI = {}
+	local function captureOriginalProperties()
+		for _, d in ipairs(Frame:GetDescendants()) do
+			pcall(function()
+				if (_origUI[d] == nil) then
+					local txt = nil
+					if (d:IsA("TextLabel") or d:IsA("TextButton") or d:IsA("TextBox")) then
+						txt = ((d.TextTransparency ~= nil) and d.TextTransparency) or nil
+					end
+					local bg = nil
+					if (d:IsA("Frame") or d:IsA("CanvasGroup") or d:IsA("ImageLabel") or d:IsA("ImageButton") or d:IsA("TextLabel") or d:IsA("TextButton") or d:IsA("TextBox")) then
+						bg = ((d.BackgroundTransparency ~= nil) and d.BackgroundTransparency) or nil
+					end
+					local stroke = nil
+					if d:IsA("UIStroke") then
+						stroke = d.Transparency
+					end
+					local img = nil
+					if (d:IsA("ImageLabel") or d:IsA("ImageButton")) then
+						img = ((d.ImageTransparency ~= nil) and d.ImageTransparency) or nil
+					end
+					_origUI[d] = {TextTransparency=txt,BackgroundTransparency=bg,StrokeTransparency=stroke,ImageTransparency=img}
+				elseif d.GetAttribute then
+					local a = d:GetAttribute("hw_orig_text_transparency")
+					if (a ~= nil) then
+						_origUI[d].TextTransparency = a
+					end
+					local ab = d:GetAttribute("hw_orig_bg_transparency")
+					if (ab ~= nil) then
+						_origUI[d].BackgroundTransparency = ab
+					end
+					local ai = d:GetAttribute("hw_orig_image_transparency")
+					if (ai ~= nil) then
+						_origUI[d].ImageTransparency = ai
+					end
+				end
+			end)
+		end
+	end
+	local function tweenToTransparency(inst, props, dur)
+		pcall(function()
+			if (not inst or not inst.Parent) then
+				return
+			end
+			if (not dur or (dur <= 0)) then
+				for k, v in pairs(props) do
+					pcall(function()
+						inst[k] = v
+					end)
+				end
+				return
+			end
+			TweenService:Create(inst, TweenInfo.new(dur, Enum.EasingStyle.Sine, Enum.EasingDirection.Out), props):Play()
+		end)
+	end
+	local function setTransparencyOnDescendants(root, target, dur)
+		if not root then
+			return
+		end
+		dur = tonumber(dur) or 0
+		for _, d in ipairs(root:GetDescendants()) do
+			pcall(function()
+				local applyProps = function(inst, props)
+					if (dur > 0) then
+						tweenToTransparency(inst, props, dur)
+					else
+						for k, v in pairs(props) do
+							if (inst[k] ~= nil) then
+								pcall(function()
+									inst[k] = v
+								end)
+							end
+						end
+					end
+				end
+				if ((d:IsA("TextLabel") or d:IsA("TextButton") or d:IsA("TextBox")) and (d.TextTransparency ~= nil)) then
+					applyProps(d, {TextTransparency=target})
+				end
+				if (d:IsA("UIStroke") and (d.Transparency ~= nil)) then
+					applyProps(d, {Transparency=target})
+				end
+				if (d:IsA("ImageLabel") or d:IsA("ImageButton")) then
+					if (d.ImageTransparency ~= nil) then
+						applyProps(d, {ImageTransparency=target})
+					end
+					if (d.BackgroundTransparency ~= nil) then
+						applyProps(d, {BackgroundTransparency=target})
+					end
+				end
+				if d:IsA("CanvasGroup") then
+					if (d.BackgroundTransparency ~= nil) then
+						applyProps(d, {BackgroundTransparency=target})
+					end
+					if (d.GroupTransparency ~= nil) then
+						applyProps(d, {GroupTransparency=target})
+					end
+					return
+				end
+				if (d.BackgroundTransparency ~= nil) then
+					applyProps(d, {BackgroundTransparency=target})
+				end
+			end)
+		end
+	end
+	local function setAllTransparency(target, dur)
+		if not _origUI then
+			return
+		end
+		for d, vals in pairs(_origUI) do
+			if (d and d.Parent) then
+				pcall(function()
+					if ((vals.TextTransparency ~= nil) and (d.TextTransparency ~= nil)) then
+						tweenToTransparency(d, {TextTransparency=target}, dur)
+					end
+					if ((vals.BackgroundTransparency ~= nil) and (d.BackgroundTransparency ~= nil)) then
+						tweenToTransparency(d, {BackgroundTransparency=target}, dur)
+					end
+					if ((vals.StrokeTransparency ~= nil) and d:IsA("UIStroke")) then
+						tweenToTransparency(d, {Transparency=target}, dur)
+					end
+					if ((vals.ImageTransparency ~= nil) and (d.ImageTransparency ~= nil)) then
+						tweenToTransparency(d, {ImageTransparency=target}, dur)
+					end
+				end)
+			else
+				_origUI[d] = nil
+			end
+		end
+	end
+	captureOriginalProperties()
+	local animCounter = 0
+	local visible = true
+	local function toggleVisible(newV)
+		animCounter = animCounter + 1
+		local token = animCounter
+		visible = ((newV == nil) and not visible) or newV
+		local animDur = 0.28
+		local fadeDur = 0.12
+		for i, inst in ipairs(window._dropdownInstances or {}) do
+			pcall(function()
+				if (inst and inst.Close) then
+					inst.Close()
+				end
+			end)
+		end
+		if visible then
+			Frame.ClipsDescendants = true
+			Frame.Visible = true
+			Frame.Size = UDim2.new(0, cfg.Width, 0, 0)
+			captureOriginalProperties()
+			setAllTransparency(1, 0)
+			tween(Frame, {Size=UDim2.new(0, cfg.Width, 0, cfg.Height)}, animDur, Enum.EasingStyle.Back, Enum.EasingDirection.Out)
+			pcall(function()
+				tween(HwanInner, {Size=UDim2.new(1, -6, 1, -6)}, 0.12)
+				task.wait(0.12)
+				tween(HwanInner, {Size=UDim2.new(1, -8, 1, -8)}, 0.12)
+			end)
+			task.delay(animDur * 0.9, function()
+				if (token ~= animCounter) then
+					return
+				end
+				for d, vals in pairs(_origUI) do
+					if (token ~= animCounter) then
+						break
+					end
+					if (d and d.Parent) then
+						pcall(function()
+							if ((vals.TextTransparency ~= nil) and (d.TextTransparency ~= nil)) then
+								tweenToTransparency(d, {TextTransparency=vals.TextTransparency}, 0.18)
+							end
+							if ((vals.BackgroundTransparency ~= nil) and (d.BackgroundTransparency ~= nil)) then
+								tweenToTransparency(d, {BackgroundTransparency=vals.BackgroundTransparency}, 0.18)
+							end
+							if ((vals.StrokeTransparency ~= nil) and d:IsA("UIStroke")) then
+								tweenToTransparency(d, {Transparency=vals.StrokeTransparency}, 0.18)
+							end
+							if ((vals.ImageTransparency ~= nil) and (d.ImageTransparency ~= nil)) then
+								tweenToTransparency(d, {ImageTransparency=vals.ImageTransparency}, 0.18)
+							end
+						end)
+					else
+						_origUI[d] = nil
+					end
+				end
+				task.delay(0.18 + 0.02, function()
+					if (token ~= animCounter) then
+						return
+					end
+					pcall(function()
+						Frame.ClipsDescendants = false
+					end)
+				end)
+			end)
+		else
+			captureOriginalProperties()
+			setAllTransparency(1, fadeDur)
+			for i, inst in ipairs(window._dropdownInstances or {}) do
+				pcall(function()
+					if (inst and inst.Close) then
+						inst.Close()
+					end
+				end)
+			end
+			for _, e in ipairs(activeNotifs) do
+				pcall(function()
+					local nf = e.frame
+					if (nf and nf.Parent) then
+						pcall(function()
+							setTransparencyOnDescendants(nf, 1, fadeDur)
+						end)
+						tween(nf, {BackgroundTransparency=1}, fadeDur)
+					end
+				end)
+			end
+			Frame.ClipsDescendants = true
+			task.delay(fadeDur + 0.02, function()
+				if (token ~= animCounter) then
+					return
+				end
+				tween(Frame, {Size=UDim2.new(0, cfg.Width, 0, 0)}, animDur, Enum.EasingStyle.Quad, Enum.EasingDirection.In)
+				pcall(function()
+					tween(HwanInner, {Size=UDim2.new(1, -6, 1, -6)}, 0.12)
+					task.wait(0.12)
+					tween(HwanInner, {Size=UDim2.new(1, -8, 1, -8)}, 0.12)
+				end)
+				task.delay(animDur + 0.02, function()
+					if (token ~= animCounter) then
+						return
+					end
+					pcall(function()
+						Frame.Visible = false
+						Frame.ClipsDescendants = false
+						for i = #activeNotifs, 1, -1 do
+							local e = activeNotifs[i]
+							if (e and e.frame) then
+								pcall(function()
+									safeDestroy(e.frame)
+								end)
+							end
+							activeNotifs[i] = nil
+						end
+					end)
+				end)
+			end)
+		end
+	end
+	addConn(HwanBtn.InputBegan:Connect(function(input)
+		if (input.UserInputType == Enum.UserInputType.MouseButton1) then
+			toggleVisible()
+		end
+	end))
+	addConn(UserInputService.InputBegan:Connect(function(input, gameProcessed)
+		if gameProcessed then
+			return
+		end
+		if (input.UserInputType ~= Enum.UserInputType.Keyboard) then
+			return
+		end
+		local keycode = cfg.ToggleKey or Enum.KeyCode.LeftAlt
+		local okToggle = false
+		if ((typeof(keycode) == "EnumItem") and (keycode.EnumType == Enum.KeyCode)) then
+			if (input.KeyCode == keycode) then
+				okToggle = true
+			end
+		elseif (type(keycode) == "string") then
+			if (tostring(input.KeyCode.Name) == keycode) then
+				okToggle = true
+			end
+		end
+		if okToggle then
+			if (cfg.HWIDSystem and not (_G.Hwan and _G.Hwan.auth)) then
+				return
+			end
+			toggleVisible()
+		end
+	end))
+	window.SetToggleKey = function(self, k)
+		if ((typeof(k) == "EnumItem") and (k.EnumType == Enum.KeyCode)) then
+			cfg.ToggleKey = k
+		elseif ((type(k) == "string") and (#k > 0)) then
+			cfg.ToggleKey = k
+		end
+	end
+	window.CreateTab = function(self, name)
+		return createTab(name)
+	end
+	window.Notify = function(self, tblOrText)
+		if (type(tblOrText) == "table") then
+			showNotification(tblOrText.Content or tblOrText.Message or tblOrText.Text or "", tblOrText.Duration)
+		else
+			showNotification(tblOrText, nil)
+		end
+	end
+	window.SetTheme = function(self, newTheme)
+		if (type(newTheme) == "string") then
+			if THEMES[newTheme] then
+				for kk, vv in pairs(THEMES[newTheme]) do
+					cfg.Theme[kk] = vv
+				end
+			end
+		elseif (type(newTheme) == "table") then
+			for kk, vv in pairs(newTheme) do
+				cfg.Theme[kk] = vv
+			end
+		end
+		if refs.Frame then
+			refs.Frame.BackgroundColor3 = cfg.Theme.Main
+		end
+		if refs.MainDivider then
+			refs.MainDivider.BackgroundColor3 = cfg.Theme.TabBg
+		end
+		if refs.InfoBar then
+			refs.InfoBar.BackgroundColor3 = cfg.Theme.InfoBg
+		end
+		if refs.InfoText then
+			refs.InfoText.TextColor3 = cfg.Theme.Text
+		end
+		if refs.HwanBtn then
+			refs.HwanBtn.BackgroundColor3 = cfg.Theme.InfoInner
+		end
+		if refs.HwanInner then
+			refs.HwanInner.BackgroundColor3 = cfg.Theme.InfoInner
+		end
+		if refs.TitleMain then
+			refs.TitleMain.TextColor3 = cfg.Theme.Accent
+		end
+		for _, t in ipairs(tabList) do
+			if t.Button then
+				t.Button.BackgroundColor3 = cfg.Theme.TabBg
+				t.Button.TextColor3 = darkenColor(cfg.Theme.Text, 0.18)
+			end
+			if t.Content then
+				for _, child in ipairs(t.Content:GetDescendants()) do
+					if (child:IsA("TextLabel") or child:IsA("TextButton") or child:IsA("TextBox")) then
+						pcall(function()
+							child.TextColor3 = cfg.Theme.Text
+						end)
+					end
+				end
+			end
+		end
+	end
+	window.GetFlag = function(self, name)
+		return window.Flags[name]
+	end
+	window.SetFlag = function(self, name, val)
+		if (window.Flags[name] and window.Flags[name].Set) then
+			window.Flags[name].Set(val)
+		else
+			window.Flags[name] = {Value=val}
+		end
+	end
+	window.SaveConfiguration = function(self)
+		saveConfig()
+	end
+	window.LoadConfiguration = function(self)
+		loadConfig()
+	end
+	local function oldDestroy()
+		for _, inst in ipairs(window._dropdownInstances or {}) do
+			pcall(function()
+				if (inst and inst.Close) then
+					inst.Close()
+				end
+			end)
+		end
+		if conns then
+			for i = #conns, 1, -1 do
+				local c = conns[i]
+				pcall(function()
+					if (c and c.Disconnect) then
+						c:Disconnect()
+					elseif (c and c.disconnect) then
+						c:disconnect()
+					end
+				end)
+				conns[i] = nil
+			end
+		end
+		for i = #activeNotifs, 1, -1 do
+			local e = activeNotifs[i]
+			if (e and e.frame) then
+				safeDestroy(e.frame)
+			end
+			activeNotifs[i] = nil
+		end
+		notifQueue = nil
+		pcall(saveConfig)
+		pcall(function()
+			if (screenGui and screenGui.Parent) then
+				screenGui:Destroy()
+			end
+		end)
+		if (_G.Hwan and (_G.Hwan.screenGui == screenGui)) then
+			_G.Hwan = nil
+		end
+		window.Flags = nil
+		window._dropdownInstances = nil
+		window._dropdownStates = nil
+		window._savedState = nil
+		refs = nil
+		screenGui = nil
+		Frame = nil
+		HwanBtn = nil
+		window = nil
+	end
+	window.Destroy = function(self)
+		oldDestroy()
+	end
+	_G.Hwan = {screenGui=screenGui,conns=conns,auth=false}
+	task.spawn(function()
+		if cfg.HWIDSystem then
+			if Frame then
+				Frame.Visible = false
+			end
+			if HwanBtn then
+				HwanBtn.Visible = false
+			end
+			createHWIDUI(function()
+				_G.Hwan.auth = true
+				if Frame then
+					Frame.Visible = true
+				end
+				if HwanBtn then
+					HwanBtn.Visible = cfg.ShowToggleIcon ~= false
+				end
+				tween(Frame, {Size=finalSize}, 0.45, Enum.EasingStyle.Back, Enum.EasingDirection.Out)
+				showNotification("Welcome to " .. (cfg.Title or "Hwan Hub"))
+			end)
+		else
+			_G.Hwan.auth = true
+			if Frame then
+				Frame.Visible = true
+			end
+			if HwanBtn then
+				HwanBtn.Visible = cfg.ShowToggleIcon ~= false
+			end
+			task.wait(0.06)
+			tween(Frame, {Size=finalSize}, 0.45, Enum.EasingStyle.Back, Enum.EasingDirection.Out)
+		end
+	end)
+	task.defer(function()
+		pcall(loadConfig)
+	end)
+	return window
+end
+Hwan.GetMyHWID = function(self)
+	return self.HWID:GetEncryptedHWID()
+end
+Hwan.IsHWIDVerified = function(self)
+	if (not self._config or not self._config.HWIDSystem) then
+		return true
+	end
+	local hs = self._config.HWIDSettings or {}
+	if not hs.HWIDLock then
+		return true
+	end
+	local userHWID = self.HWID:GetEncryptedHWID()
+	local allowedHWIDs = {}
+	for _, hwid in ipairs(hs.HWIDList or {}) do
+		allowedHWIDs[tostring(hwid)] = true
+	end
+	if (hs.HWIDUrl and (hs.HWIDUrl ~= "")) then
+		local content = try_http_get(hs.HWIDUrl)
+		if content then
+			for line in content:gmatch("[^\r\n]+") do
+				local hwid = line:gsub("^%s*(.-)%s*$", "%1")
+				if (hwid ~= "") then
+					allowedHWIDs[hwid] = true
+				end
+			end
+		end
+	end
+	return allowedHWIDs[userHWID] or false
+end
+Hwan.AddHWIDToList = function(self, hwid)
+	if (not self._config or not self._config.HWIDSettings) then
+		return false
+	end
+	if not self._config.HWIDSettings.HWIDList then
+		self._config.HWIDSettings.HWIDList = {}
+	end
+	table.insert(self._config.HWIDSettings.HWIDList, hwid)
+	return true
+end
+Hwan.CopyHWID = function(self)
+	local hwid = self:GetEncryptedHWID()
+	local success = false
+	local methods = {function()
+		if setclipboard then
+			setclipboard(hwid)
+			return true
+		end
+	end,function()
+		if toclipboard then
+			toclipboard(hwid)
+			return true
+		end
+	end,function()
+		if write_clipboard then
+			write_clipboard(hwid)
+			return true
+		end
+	end,function()
+		if (clipboard and (type(clipboard.set) == "function")) then
+			clipboard.set(hwid)
+			return true
+		end
+	end,function()
+		return pcall(function()
+			game:GetService("UserInputService"):SetClipboard(hwid)
+		end)
+	end}
+	for _, method in ipairs(methods) do
+		local ok, result = pcall(method)
+		if (ok and result) then
+			success = true
+			break
+		end
+	end
+	return success, hwid
+end
+return Hwan
