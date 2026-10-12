@@ -1,4 +1,4 @@
--- Hwanlib - v1.0.0.0
+-- Hwanlib - v1.0.1.0 (stability patch)
 local Hwanlib = {}
 Hwanlib.__index = Hwanlib
 local Players = game:GetService("Players")
@@ -11,8 +11,8 @@ local function getLocalPlayer(timeout)
 	if (timeout <= 0) then
 		return nil
 	end
-	local start = tick()
-	while (tick() - start) < timeout do
+	local start = os.clock()
+	while (os.clock() - start) < timeout do
 		if (Players and Players.LocalPlayer) then
 			return Players.LocalPlayer
 		end
@@ -25,7 +25,7 @@ local function refreshLocalPlayer()
 	return LocalPlayer
 end
 if not LocalPlayer then
-	spawn(function()
+	task.spawn(function()
 		for i = 1, 200 do
 			if (Players and Players.LocalPlayer) then
 				LocalPlayer = Players.LocalPlayer
@@ -54,6 +54,15 @@ local ThemeManager = {
 		Selected = Color3.fromRGB(150, 150, 150)
 	}
 }
+local function completeTheme(theme)
+	local result = {}
+	theme = (type(theme) == "table") and theme or ThemeManager.Default
+	for key, defaultValue in pairs(ThemeManager.Default) do
+		local value = theme[key]
+		result[key] = (typeof(value) == "Color3") and value or defaultValue
+	end
+	return result
+end
 local function safeCall(func, ...)
 	if (type(func) ~= "function") then
 		return nil
@@ -98,19 +107,16 @@ local function trackConnection(conn)
 	return conn
 end
 local antiAfkConnection
+local antiAFKEnabled = false
 local function setupAntiAFK()
-	if not LocalPlayer then
-		return
-	end
 	if antiAfkConnection then
-		safeCall(function()
-			antiAfkConnection:Disconnect()
-			antiAfkConnection = nil
-		end)
+		safeCall(antiAfkConnection.Disconnect, antiAfkConnection)
+		antiAfkConnection = nil
 	end
-	if ((type(VirtualUser) ~= "userdata") and (type(VirtualUser) ~= "table")) then
-		return
-	end
+	if not antiAFKEnabled then return end
+	LocalPlayer = LocalPlayer or refreshLocalPlayer()
+	if not LocalPlayer then return end
+	if ((type(VirtualUser) ~= "userdata") and (type(VirtualUser) ~= "table")) then return end
 	local ok, idledEvent = pcall(function()
 		return LocalPlayer and LocalPlayer.Idled
 	end)
@@ -129,6 +135,15 @@ local function setupAntiAFK()
 			end)
 		end)
 	end))
+end
+Hwanlib.SetAntiAFKEnabled = function(selfOrEnabled, enabled)
+	if type(selfOrEnabled) == "table" then
+		antiAFKEnabled = enabled == true
+	else
+		antiAFKEnabled = selfOrEnabled == true
+	end
+	setupAntiAFK()
+	return antiAFKEnabled
 end
 local function cleanupPrevious()
 	safeCall(function()
@@ -206,19 +221,32 @@ local function truncateString(s, n)
 	end
 end
 local function canWriteFile()
-	return (type(writefile) == "function") and (type(readfile) == "function")
+	return type(writefile) == "function"
+end
+local function canReadFile()
+	return type(readfile) == "function"
 end
 local function safeWriteFile(path, content)
-	if canWriteFile() then
-		safeCall(writefile, path, content)
+	if not canWriteFile() then
+		return false, "writefile is unavailable in this environment"
 	end
+	local ok, err = pcall(writefile, path, content)
+	if not ok then
+		warn("HwanLib: failed to write config:", err)
+		return false, err
+	end
+	return true
 end
 local function safeReadFile(path)
-	if canWriteFile() then
-		local content = safeCall(readfile, path)
-		return content
+	if not canReadFile() then
+		return nil, "readfile is unavailable in this environment"
 	end
-	return nil
+	local ok, content = pcall(readfile, path)
+	if not ok then
+		warn("HwanLib: failed to read config:", content)
+		return nil, content
+	end
+	return content
 end
 Hwanlib.CreateWindow = function(self, opts)
 	opts = opts or {}
@@ -230,23 +258,35 @@ Hwanlib.CreateWindow = function(self, opts)
 	else
 		selectedTheme = ThemeManager.Default
 	end
-	local CONFIG = opts.ConfigurationSaving or {
-		Enabled = false,
-		FolderName = "",
-		FileName = ""
+	selectedTheme = completeTheme(selectedTheme)
+	local suppliedConfig = type(opts.ConfigurationSaving) == "table" and opts.ConfigurationSaving or {}
+	local CONFIG = {
+		Enabled = suppliedConfig.Enabled == true,
+		FolderName = suppliedConfig.FolderName or "",
+		FileName = suppliedConfig.FileName or "hwanlib_config.json"
 	}
 	local LOADING_TITLE = opts.LoadingTitle or opts.Title or "Title"
 	local LOADING_SUBTITLE = opts.LoadingSubtitle or opts.Subtitle or "Subtitle"
 	local LOADING_DURATION = tonumber(opts.LoadingDuration) or 1.6
+	if LOADING_DURATION ~= LOADING_DURATION or LOADING_DURATION == math.huge or LOADING_DURATION == -math.huge or LOADING_DURATION < 0 then
+		LOADING_DURATION = 1.6
+	end
 	local function ensureScreenGui()
 		local lp = getLocalPlayer(1)
+		if lp then LocalPlayer = lp end
 		if not lp then
 			warn("HwanLib: LocalPlayer not found - aborting GUI creation.")
 			return nil
 		end
 		local pg = lp:FindFirstChild("PlayerGui")
 		if not pg then
-			warn("HwanLib: PlayerGui not found.")
+			local waitOk, waitedGui = pcall(function()
+				return lp:WaitForChild("PlayerGui", 3)
+			end)
+			if waitOk then pg = waitedGui end
+		end
+		if not pg then
+			warn("HwanLib: PlayerGui not found; CreateWindow aborted.")
 			return nil
 		end
 		local s = pg:FindFirstChild("hwanlib")
@@ -259,6 +299,7 @@ Hwanlib.CreateWindow = function(self, opts)
 			return New("ScreenGui", {
 				Name = "hwanlib",
 				Parent = pg,
+				ResetOnSpawn = false,
 				ZIndexBehavior = Enum.ZIndexBehavior.Sibling
 			})
 		end)
@@ -275,9 +316,13 @@ Hwanlib.CreateWindow = function(self, opts)
 		return gui
 	end
 	local sg = ensureScreenGui()
-	local defaultSize = opts.Size or UDim2.new(0, 550, 0, 323)
+	if not sg then
+		warn("HwanLib: CreateWindow aborted because ScreenGui could not be created.")
+		return nil
+	end
+	local defaultSize = (typeof(opts.Size) == "UDim2") and opts.Size or UDim2.new(0, 550, 0, 323)
 	local mainPosition
-	if opts.Position then
+	if typeof(opts.Position) == "UDim2" then
 		mainPosition = opts.Position
 	else
 		local ox = -defaultSize.X.Offset / 2
@@ -619,30 +664,40 @@ Hwanlib.CreateWindow = function(self, opts)
 		_activeColorOwner = nil,
 		_toggleGui = nil,
 		_conns = {},
-		_auxObjects = {}
+		_cleanups = {},
+		_tweens = {},
+		_auxObjects = {},
+		_destroyed = false,
+		_saveScheduled = false,
+		_saveToken = 0,
+		_saveThread = nil
 	}
 	table.insert(activeWindows, Window)
 	Window.CloseAllPanels = function()
 		safeCall(function()
-			if (Window._objects and Window._objects.DropdownBorder) then
+			if Window._objects and Window._objects.DropdownBorder then
 				Window._objects.DropdownBorder.Visible = false
-				if (Window._activeDropdownOwner and Window._activeDropdownOwner.btn) then
-					Window._activeDropdownOwner.btn.BackgroundColor3 = selectedTheme.ButtonDark
-					Window._activeDropdownOwner.btn.TextColor3 = selectedTheme.ButtonText
+			end
+			local owner = Window._activeDropdownOwner
+			if owner then
+				if owner.btn and owner.btn.Parent then
+					owner.btn.BackgroundColor3 = selectedTheme.ButtonDark
+					owner.btn.TextColor3 = selectedTheme.ButtonText
 				end
+				if owner.close then owner.close() end
 			end
 		end)
 		Window._activeDropdownOwner = nil
 		safeCall(function()
-			if (Window._activeColorOwner and Window._activeColorOwner.panel) then
-				Window._activeColorOwner.panel.Visible = false
-			end
+			local owner = Window._activeColorOwner
+			if owner and owner.panel then owner.panel.Visible = false end
 		end)
 		Window._activeColorOwner = nil
 	end
 	local function configMakePath()
-		local folder = (CONFIG.FolderName or ""):gsub("[/\\]+$", "")
-		local fname = CONFIG.FileName or "hwanlib_config.json"
+		local folder = tostring(CONFIG.FolderName or ""):gsub("[/\\]+$", "")
+		local fname = tostring(CONFIG.FileName or "")
+		if fname == "" then fname = "hwanlib_config.json" end
 		if (folder ~= "") then
 			return folder .. "/" .. fname
 		end
@@ -650,64 +705,117 @@ Hwanlib.CreateWindow = function(self, opts)
 	end
 	Window._configPath = configMakePath()
 	Window.SaveConfig = function(self)
-		if not CONFIG.Enabled then
-			return
-		end
-		local json = safeCall(HttpService.JSONEncode, HttpService, self._config)
-		if json then
-			safeWriteFile(self._configPath, json)
-		end
+	if not CONFIG.Enabled then
+		return false, "configuration saving is disabled"
 	end
-	Window.LoadConfig = function(self)
-		if not CONFIG.Enabled then
-			return
-		end
-		local cont = safeReadFile(self._configPath)
-		if not cont then
-			return
-		end
-		local data = safeCall(HttpService.JSONDecode, HttpService, cont)
-		if (data and (type(data) == "table")) then
-			self._config = data
-		end
+	local json = safeCall(HttpService.JSONEncode, HttpService, self._config)
+	if type(json) ~= "string" then
+		return false, "could not encode configuration"
 	end
-	Window:LoadConfig()
-	local function trackWindowConn(conn)
-		if (conn and (typeof(conn) == "RBXScriptConnection")) then
+	return safeWriteFile(self._configPath, json)
+end
+Window.LoadConfig = function(self)
+	if not CONFIG.Enabled then
+		return false, "configuration saving is disabled"
+	end
+	local cont, readError = safeReadFile(self._configPath)
+	if type(cont) ~= "string" or cont == "" then
+		return false, readError or "configuration file is empty or missing"
+	end
+	local data = safeCall(HttpService.JSONDecode, HttpService, cont)
+	if type(data) ~= "table" then
+		return false, "configuration JSON is invalid"
+	end
+	self._config = data
+	return true
+end
+Window:LoadConfig()
+local function trackWindowConn(conn)
+	if conn and typeof(conn) == "RBXScriptConnection" then
+		if Window._destroyed then
+			safeCall(conn.Disconnect, conn)
+		else
 			table.insert(Window._conns, conn)
 		end
 	end
-	local function cleanupWindow()
-		for _, c in ipairs(Window._conns) do
-			safeCall(c.Disconnect, c)
-		end
-		Window._conns = {}
-		for _, o in ipairs(Window._auxObjects) do
-			if (o and o.Parent) then
-				o:Destroy()
-			end
-		end
-		Window._auxObjects = {}
-		safeCall(function()
-			if (Window._toggleGui and Window._toggleGui.Parent) then
-				Window._toggleGui:Destroy()
-			end
-		end)
-		safeCall(function()
-			if (Window._objects and Window._objects.ScreenGui and Window._objects.ScreenGui.Parent) then
-				Window._objects.ScreenGui:Destroy()
-			end
-		end)
-		for i, w in ipairs(activeWindows) do
-			if (w == Window) then
-				table.remove(activeWindows, i)
-				break
-			end
+	return conn
+end
+local function trackWindowCleanup(cleanup)
+	if type(cleanup) == "function" then
+		if Window._destroyed then
+			safeCall(cleanup)
+		else
+			table.insert(Window._cleanups, cleanup)
 		end
 	end
-	Window.Destroy = function(self)
-		cleanupWindow()
+end
+local function trackWindowTween(tween)
+	if tween then
+		if Window._destroyed then
+			safeCall(tween.Cancel, tween)
+		else
+			table.insert(Window._tweens, tween)
+		end
 	end
+	return tween
+end
+Window.ScheduleSaveConfig = function(self, delaySeconds)
+	if not CONFIG.Enabled or self._destroyed then return end
+	if self._saveThread then safeCall(task.cancel, self._saveThread) end
+	self._saveToken = self._saveToken + 1
+	local token = self._saveToken
+	self._saveScheduled = true
+	self._saveThread = task.delay(math.max(0, tonumber(delaySeconds) or 0.35), function()
+		if self._destroyed or token ~= self._saveToken then return end
+		self._saveThread = nil
+		self._saveScheduled = false
+		local okSave, saveError = self:SaveConfig()
+		if not okSave and canWriteFile() then
+			warn("HwanLib: scheduled config save failed:", saveError)
+		end
+	end)
+end
+local function cleanupWindow()
+	if Window._destroyed then return end
+	if Window._saveScheduled then
+		Window._saveToken = Window._saveToken + 1
+		Window._saveScheduled = false
+		if Window._saveThread then safeCall(task.cancel, Window._saveThread); Window._saveThread = nil end
+		safeCall(Window.SaveConfig, Window)
+	end
+	Window._destroyed = true
+	for _, cleanup in ipairs(Window._cleanups) do
+		safeCall(cleanup)
+	end
+	Window._cleanups = {}
+	for _, tween in ipairs(Window._tweens) do
+		safeCall(tween.Cancel, tween)
+	end
+	Window._tweens = {}
+	for _, c in ipairs(Window._conns) do
+		safeCall(c.Disconnect, c)
+	end
+	Window._conns = {}
+	for _, o in ipairs(Window._auxObjects) do
+		if o and o.Parent then safeCall(o.Destroy, o) end
+	end
+	Window._auxObjects = {}
+	safeCall(function()
+		if Window._toggleGui and Window._toggleGui.Parent then Window._toggleGui:Destroy() end
+	end)
+	safeCall(function()
+		if Window._objects and Window._objects.ScreenGui and Window._objects.ScreenGui.Parent then
+			Window._objects.ScreenGui:Destroy()
+		end
+	end)
+	Window.CloseAllPanels()
+	for i, w in ipairs(activeWindows) do
+		if w == Window then table.remove(activeWindows, i); break end
+	end
+end
+Window.Destroy = function(self)
+	cleanupWindow()
+end
 	if Window._objects.ScreenGui then
 		trackWindowConn(Window._objects.ScreenGui.AncestryChanged:Connect(function()
 			if not Window._objects.ScreenGui:IsDescendantOf(game) then
@@ -722,92 +830,74 @@ Hwanlib.CreateWindow = function(self, opts)
 		local targetPos = startPos
 		local inputId = nil
 		local DRAG_THRESHOLD = 6
-		local moved = false
-		local moveConn, endConn = nil, nil
-		local smoothingFactor = 0.18
-		local mainSmoothConn = RunService.Heartbeat:Connect(function()
-			if (not main or not main.Parent) then
-				return
-			end
-			local cur = Vector2.new(main.Position.X.Offset, main.Position.Y.Offset)
-			local goal = Vector2.new(targetPos.X.Offset, targetPos.Y.Offset)
-			local newX = cur.X + ((goal.X - cur.X) * smoothingFactor)
-			local newY = cur.Y + ((goal.Y - cur.Y) * smoothingFactor)
-			main.Position = UDim2.new(main.Position.X.Scale, math.floor(newX + 0.5), main.Position.Y.Scale, math.floor(newY + 0.5))
-		end)
-		trackWindowConn(mainSmoothConn)
+		local moveConn, endConn, smoothConn = nil, nil, nil
+		local function stopDragConnections()
+			if moveConn then safeCall(moveConn.Disconnect, moveConn) end
+			if endConn then safeCall(endConn.Disconnect, endConn) end
+			if smoothConn then safeCall(smoothConn.Disconnect, smoothConn) end
+			moveConn, endConn, smoothConn = nil, nil, nil
+		end
+		trackWindowCleanup(stopDragConnections)
+		local function startSmoothing()
+			if smoothConn or Window._destroyed then return end
+			smoothConn = RunService.Heartbeat:Connect(function(dt)
+				if Window._destroyed or not main.Parent then
+					stopDragConnections()
+					return
+				end
+				local curX, curY = main.Position.X.Offset, main.Position.Y.Offset
+				local goalX, goalY = targetPos.X.Offset, targetPos.Y.Offset
+				local alpha = 1 - math.exp(-12 * math.max(dt or 0, 0))
+				local newX = curX + (goalX - curX) * alpha
+				local newY = curY + (goalY - curY) * alpha
+				if math.abs(goalX - newX) < 0.5 and math.abs(goalY - newY) < 0.5 and not dragging then
+					main.Position = targetPos
+					stopDragConnections()
+				else
+					main.Position = UDim2.new(targetPos.X.Scale, math.floor(newX + 0.5), targetPos.Y.Scale, math.floor(newY + 0.5))
+				end
+			end)
+		end
 		local function begin(input)
-			if not input then
-				return
-			end
-			if not ((input.UserInputType == Enum.UserInputType.MouseButton1) or (input.UserInputType == Enum.UserInputType.Touch)) then
-				return
-			end
-			if inputId then
-				return
-			end
+			if not input then return end
+			if not (input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch) then return end
+			if inputId or Window._destroyed then return end
 			inputId = input
 			dragging = false
 			dragStart = input.Position
 			startPos = main.Position
 			targetPos = startPos
-			moved = false
 			moveConn = UserInputService.InputChanged:Connect(function(i)
-				local isMatching = false
-				if (i == input) then
-					isMatching = true
-				elseif ((input.UserInputType == Enum.UserInputType.MouseButton1) and (i.UserInputType == Enum.UserInputType.MouseMovement)) then
-					isMatching = true
-				elseif ((input.UserInputType == Enum.UserInputType.Touch) and (i.UserInputType == Enum.UserInputType.Touch)) then
-					isMatching = true
-				end
-				if not isMatching then
-					return
-				end
+				local matching = (i == input)
+					or (input.UserInputType == Enum.UserInputType.MouseButton1 and i.UserInputType == Enum.UserInputType.MouseMovement)
+					or (input.UserInputType == Enum.UserInputType.Touch and i.UserInputType == Enum.UserInputType.Touch)
+				if not matching then return end
 				local delta = i.Position - dragStart
-				if (not dragging and ((math.abs(delta.X) + math.abs(delta.Y)) > DRAG_THRESHOLD)) then
+				if not dragging and (math.abs(delta.X) + math.abs(delta.Y) > DRAG_THRESHOLD) then
 					dragging = true
+					startSmoothing()
 				end
 				if dragging then
-					local desired = UDim2.new(startPos.X.Scale, startPos.X.Offset + delta.X, startPos.Y.Scale, startPos.Y.Offset + delta.Y)
-					targetPos = desired
-					moved = true
+					targetPos = UDim2.new(startPos.X.Scale, startPos.X.Offset + delta.X, startPos.Y.Scale, startPos.Y.Offset + delta.Y)
 				end
 			end)
-			trackWindowConn(moveConn)
 			endConn = UserInputService.InputEnded:Connect(function(i)
-				if ((i.UserInputType == input.UserInputType) or ((input.UserInputType == Enum.UserInputType.MouseButton1) and (i.UserInputType == Enum.UserInputType.MouseMovement))) then
-					if moveConn then
-						moveConn:Disconnect()
-						moveConn = nil
-					end
-					if endConn then
-						endConn:Disconnect()
-						endConn = nil
-					end
+				local matching = i.UserInputType == input.UserInputType
+				if matching then
+					if dragging then main.Position = targetPos end
 					inputId = nil
 					dragging = false
-					targetPos = UDim2.new(targetPos.X.Scale, math.floor(targetPos.X.Offset + 0.5), targetPos.Y.Scale, math.floor(targetPos.Y.Offset + 0.5))
+					stopDragConnections()
 				end
 			end)
-			trackWindowConn(endConn)
 		end
-		drag_bar.InputBegan:Connect(begin)
-		drag_bar.AncestryChanged:Connect(function()
+		trackWindowConn(drag_bar.InputBegan:Connect(begin))
+		trackWindowConn(drag_bar.AncestryChanged:Connect(function()
 			if not drag_bar:IsDescendantOf(game) then
 				dragging = false
-				safeCall(function()
-					if moveConn then
-						moveConn:Disconnect()
-					end
-				end)
-				safeCall(function()
-					if endConn then
-						endConn:Disconnect()
-					end
-				end)
+				stopDragConnections()
 			end
-		end)
+		end))
 	end
 	local function positionDropdown()
 		local mainObj = Window._objects.Main
@@ -840,8 +930,7 @@ Hwanlib.CreateWindow = function(self, opts)
 	trackWindowConn(conn_pos1)
 	local conn_pos2 = main:GetPropertyChangedSignal("AbsoluteSize"):Connect(positionDropdown)
 	trackWindowConn(conn_pos2)
-	local conn_hb_pos = RunService.Heartbeat:Connect(positionDropdown)
-	trackWindowConn(conn_hb_pos)
+	-- AbsolutePosition/AbsoluteSize listeners reposition the dropdown only when needed.
 	local tabs = {}
 	local activeTab
 	local function createTabContentFrame()
@@ -1003,7 +1092,7 @@ Hwanlib.CreateWindow = function(self, opts)
 				_button = btn
 			}
 			obj.Set = function(self, newText)
-				if newText then
+				if newText ~= nil then
 					btn.Text = tostring(newText)
 				end
 			end
@@ -1061,7 +1150,7 @@ Hwanlib.CreateWindow = function(self, opts)
 			knob.Position = UDim2.new(0, offCenter, 0.5, 0)
 			local state = (opts.CurrentValue and true) or false
 			local function setState(on, skipCallback)
-				state = on
+				state = (on == true)
 				if state then
 					frameSwitch.BackgroundColor3 = selectedTheme.ButtonOn
 					TweenService:Create(knob, TweenInfo.new(0.12), {
@@ -1075,7 +1164,7 @@ Hwanlib.CreateWindow = function(self, opts)
 				end
 				if (opts.Flag and CONFIG.Enabled) then
 					Window._config[opts.Flag] = state
-					Window:SaveConfig()
+					Window:ScheduleSaveConfig()
 				end
 				if (opts.Callback and not skipCallback) then
 					safeCall(opts.Callback, state)
@@ -1113,307 +1202,217 @@ Hwanlib.CreateWindow = function(self, opts)
 			opts = opts or {}
 			local f = elementFrame()
 			local label = New("TextLabel", {
-				Parent = f,
-				BackgroundTransparency = 1,
-				Position = UDim2.new(0, LEFT_PAD, 0.18, 0),
-				Size = UDim2.new(0.45, 0, 0, 22),
-				Font = FONT,
-				Text = (opts.Title or opts.Name or "Dropdown"),
-				TextColor3 = Color3.fromRGB(0, 0, 0),
-				TextSize = 16,
+				Parent = f, BackgroundTransparency = 1,
+				Position = UDim2.new(0, LEFT_PAD, 0.18, 0), Size = UDim2.new(0.45, 0, 0, 22),
+				Font = FONT, Text = opts.Title or opts.Name or "Dropdown",
+				TextColor3 = Color3.fromRGB(0, 0, 0), TextSize = 16,
 				TextXAlignment = Enum.TextXAlignment.Left
 			})
 			local btn = New("TextButton", {
-				Parent = f,
-				BackgroundColor3 = selectedTheme.ButtonDark,
-				BorderSizePixel = 0,
-				Position = UDim2.new(1, -BUTTON_W - RIGHT_PAD, 0.18, 0),
-				Size = UDim2.new(0, BUTTON_W, 0, 22),
-				Font = FONT,
-				Text = "Select",
-				TextColor3 = selectedTheme.ButtonText,
-				TextSize = 14
+				Parent = f, BackgroundColor3 = selectedTheme.ButtonDark, BorderSizePixel = 0,
+				Position = UDim2.new(1, -BUTTON_W - RIGHT_PAD, 0.18, 0), Size = UDim2.new(0, BUTTON_W, 0, 22),
+				Font = FONT, Text = "Select", TextColor3 = selectedTheme.ButtonText, TextSize = 14
 			})
-			New("UICorner", {
-				Parent = btn,
-				CornerRadius = CORNER_RADIUS
-			})
+			New("UICorner", {Parent = btn, CornerRadius = CORNER_RADIUS})
 			local options = {}
-			for _, v in ipairs(opts.Options or {}) do
-				table.insert(options, v)
+			if type(opts.Options) == "table" then
+				for _, value in ipairs(opts.Options) do table.insert(options, value) end
 			end
-			local multiple = opts.MultipleOptions or false
+			local multiple = opts.MultipleOptions == true
 			local selections = {}
 			local isOpen = false
-			local function buildItems()
-				for _, c in ipairs(Window._objects.DropdownItemArea:GetChildren()) do
-					if not (c:IsA("UIListLayout") or c:IsA("UIPadding")) then
-						c:Destroy()
+			local itemConnections = {}
+			local function disconnectItemConnections()
+				for _, connection in ipairs(itemConnections) do safeCall(connection.Disconnect, connection) end
+				table.clear(itemConnections)
+			end
+			local function normalize(value) return tostring(value) end
+			local function findOption(value)
+				local wanted = normalize(value)
+				for _, option in ipairs(options) do
+					if normalize(option) == wanted then return option end
+				end
+				return nil
+			end
+			local function clearSelections()
+				for key in pairs(selections) do selections[key] = nil end
+			end
+			local function selectedList()
+				local result = {}
+				for _, option in ipairs(options) do
+					local key = normalize(option)
+					if multiple and selections[key] then
+						table.insert(result, key)
+					elseif not multiple and selections[1] == key then
+						return {key}
 					end
 				end
+				return result
+			end
+			local function updateButtonText()
 				if multiple then
-					local sa = New("TextButton", {
-						Parent = Window._objects.DropdownItemArea,
-						BackgroundColor3 = Color3.new(1, 1, 1),
-						BackgroundTransparency = 0.5,
-						BorderSizePixel = 0,
-						Size = UDim2.new(1, 0, 0, 21),
-						Font = FONT,
-						Text = "  Select All",
-						TextColor3 = Color3.fromRGB(0, 0, 0),
-						TextSize = 13,
-						TextXAlignment = Enum.TextXAlignment.Left
-					})
-					local saConn = sa.MouseButton1Click:Connect(function()
-						local allSelected = true
-						for _, opt in ipairs(options) do
-							if not selections[opt] then
-								allSelected = false
-								break
-							end
-						end
-						if allSelected then
-							for _, opt in ipairs(options) do
-								selections[opt] = nil
-							end
-						else
-							for _, opt in ipairs(options) do
-								selections[opt] = true
-							end
-						end
-						for _, c in ipairs(Window._objects.DropdownItemArea:GetChildren()) do
-							if c:IsA("TextButton") then
-								local txt = c.Text:gsub("^%s+", "")
-								if (txt == "Select All") then
-								elseif selections[txt] then
-									c.BackgroundColor3 = Color3.fromRGB(80, 80, 80)
-									c.TextColor3 = Color3.fromRGB(185, 185, 185)
-									c.BackgroundTransparency = 0
-								else
-									c.BackgroundColor3 = Color3.new(1, 1, 1)
-									c.TextColor3 = Color3.fromRGB(0, 0, 0)
-									c.BackgroundTransparency = 0.5
-								end
-							end
-						end
-						local selList = {}
-						for k, v in pairs(selections) do
-							if v then
-								table.insert(selList, k)
-							end
-						end
-						if (opts.Flag and CONFIG.Enabled) then
-							Window._config[opts.Flag] = selList
-							Window:SaveConfig()
-						end
-						if opts.Callback then
-							safeCall(opts.Callback, selList)
-						end
-					end)
-					trackWindowConn(saConn)
-				end
-				for _, v in ipairs(options) do
-					local item = New("TextButton", {
-						Parent = Window._objects.DropdownItemArea,
-						BackgroundColor3 = Color3.new(1, 1, 1),
-						BackgroundTransparency = 0.5,
-						BorderSizePixel = 0,
-						Size = UDim2.new(1, 0, 0, 21),
-						Font = FONT,
-						Text = ("  " .. tostring(v)),
-						TextColor3 = Color3.fromRGB(0, 0, 0),
-						TextSize = 13,
-						TextXAlignment = Enum.TextXAlignment.Left
-					})
-					if multiple then
-						if selections[tostring(v)] then
-							item.BackgroundColor3 = Color3.fromRGB(80, 80, 80)
-							item.TextColor3 = Color3.fromRGB(185, 185, 185)
-							item.BackgroundTransparency = 0
-						end
-					elseif (selections[1] == tostring(v)) then
-						item.BackgroundColor3 = Color3.fromRGB(80, 80, 80)
-						item.TextColor3 = Color3.fromRGB(185, 185, 185)
-						item.BackgroundTransparency = 0
-					end
-					local itemConn = item.MouseButton1Click:Connect(function()
-						local txt = tostring(v)
-						if multiple then
-							if selections[txt] then
-								selections[txt] = nil
-								item.BackgroundColor3 = Color3.new(1, 1, 1)
-								item.TextColor3 = Color3.fromRGB(0, 0, 0)
-								item.BackgroundTransparency = 0.5
-							else
-								selections[txt] = true
-								item.BackgroundColor3 = Color3.fromRGB(80, 80, 80)
-								item.TextColor3 = Color3.fromRGB(185, 185, 185)
-								item.BackgroundTransparency = 0
-							end
-							local selList = {}
-							for k, val in pairs(selections) do
-								if val then
-									table.insert(selList, k)
-								end
-							end
-							if (opts.Flag and CONFIG.Enabled) then
-								Window._config[opts.Flag] = selList
-								Window:SaveConfig()
-							end
-							if opts.Callback then
-								safeCall(opts.Callback, selList)
-							end
-						else
-							for _, c in ipairs(Window._objects.DropdownItemArea:GetChildren()) do
-								if c:IsA("TextButton") then
-									c.BackgroundColor3 = Color3.new(1, 1, 1)
-									c.TextColor3 = Color3.fromRGB(0, 0, 0)
-									c.BackgroundTransparency = 0.5
-								end
-							end
-							item.BackgroundColor3 = Color3.fromRGB(80, 80, 80)
-							item.TextColor3 = Color3.fromRGB(185, 185, 185)
-							item.BackgroundTransparency = 0
-							selections = {
-								txt
-							}
-							if (opts.Flag and CONFIG.Enabled) then
-								Window._config[opts.Flag] = selections
-								Window:SaveConfig()
-							end
-							if opts.Callback then
-								safeCall(opts.Callback, v)
-							end
-						end
-					end)
-					trackWindowConn(itemConn)
+					local count = #selectedList()
+					btn.Text = count == 0 and "Select" or (tostring(count) .. " selected")
+				else
+					btn.Text = selections[1] or "Select"
 				end
 			end
+			local function syncItemVisuals()
+				for _, child in ipairs(Window._objects.DropdownItemArea:GetChildren()) do
+					if child:IsA("TextButton") then
+						local text = child.Text:gsub("^%s+", "")
+						if text ~= "Select All" and ((multiple and selections[text]) or (not multiple and selections[1] == text)) then
+							child.BackgroundColor3 = selectedTheme.ButtonDark
+							child.TextColor3 = selectedTheme.ButtonText
+							child.BackgroundTransparency = 0
+						else
+							child.BackgroundColor3 = Color3.new(1, 1, 1)
+							child.TextColor3 = Color3.fromRGB(0, 0, 0)
+							child.BackgroundTransparency = 0.5
+						end
+					end
+				end
+			end
+			local function saveSelection()
+				if opts.Flag and CONFIG.Enabled then
+					Window._config[opts.Flag] = selectedList()
+					Window:ScheduleSaveConfig()
+				end
+			end
+			local function applySelection(value)
+				clearSelections()
+				if multiple then
+					if type(value) == "table" then
+						for _, candidate in ipairs(value) do
+							local found = findOption(candidate)
+							if found ~= nil then selections[normalize(found)] = true end
+						end
+					end
+				else
+					local candidate = type(value) == "table" and value[1] or value
+					if candidate ~= nil then
+						local found = findOption(candidate)
+						if found ~= nil then selections[1] = normalize(found) end
+					end
+				end
+				updateButtonText()
+				if isOpen then syncItemVisuals() end
+			end
+			local function invokeCallback()
+				if not opts.Callback then return end
+				if multiple then
+					safeCall(opts.Callback, selectedList())
+				else
+					safeCall(opts.Callback, findOption(selections[1]))
+				end
+			end
+			local function addItemConnection(connection)
+				if connection then table.insert(itemConnections, connection) end
+			end
+			local function buildItems()
+				disconnectItemConnections()
+				for _, child in ipairs(Window._objects.DropdownItemArea:GetChildren()) do
+					if not (child:IsA("UIListLayout") or child:IsA("UIPadding")) then child:Destroy() end
+				end
+				if multiple then
+					local selectAll = New("TextButton", {
+						Parent = Window._objects.DropdownItemArea, BackgroundColor3 = Color3.new(1,1,1),
+						BackgroundTransparency = 0.5, BorderSizePixel = 0, Size = UDim2.new(1,0,0,21),
+						Font = FONT, Text = "  Select All", TextColor3 = Color3.fromRGB(0,0,0), TextSize = 13,
+						TextXAlignment = Enum.TextXAlignment.Left
+					})
+					addItemConnection(selectAll.MouseButton1Click:Connect(function()
+						local allSelected = #options > 0
+						for _, option in ipairs(options) do
+							if not selections[normalize(option)] then allSelected = false; break end
+						end
+						clearSelections()
+						if not allSelected then
+							for _, option in ipairs(options) do selections[normalize(option)] = true end
+						end
+						updateButtonText(); syncItemVisuals(); saveSelection(); invokeCallback()
+					end))
+				end
+				for _, option in ipairs(options) do
+					local key = normalize(option)
+					local item = New("TextButton", {
+						Parent = Window._objects.DropdownItemArea, BackgroundColor3 = Color3.new(1,1,1),
+						BackgroundTransparency = 0.5, BorderSizePixel = 0, Size = UDim2.new(1,0,0,21),
+						Font = FONT, Text = "  " .. key, TextColor3 = Color3.fromRGB(0,0,0), TextSize = 13,
+						TextXAlignment = Enum.TextXAlignment.Left
+					})
+					addItemConnection(item.MouseButton1Click:Connect(function()
+						if multiple then
+							selections[key] = not selections[key] and true or nil
+						else
+							clearSelections(); selections[1] = key
+						end
+						updateButtonText(); syncItemVisuals(); saveSelection(); invokeCallback()
+					end))
+				end
+				syncItemVisuals()
+			end
 			local function openPanel()
-				if Window.CloseAllPanels then
-					Window.CloseAllPanels()
-				end
+				Window:CloseAllPanels()
 				local titleLabel = Window._objects.DropdownPanel:FindFirstChild("title")
-				if titleLabel then
-					titleLabel.Text = opts.Title or opts.Name or "Dropdown"
-				end
-				if (Window._objects.DropdownSearch and Window._objects.DropdownSearch.Parent) then
-					Window._objects.DropdownSearch.Text = ""
-					Window._objects.DropdownSearch.PlaceholderText = "Search"
-					Window._objects.DropdownSearch.PlaceholderColor3 = Color3.fromRGB(83, 83, 83)
-				end
+				if titleLabel then titleLabel.Text = opts.Title or opts.Name or "Dropdown" end
+				Window._objects.DropdownSearch.Text = ""
 				buildItems()
 				Window._objects.DropdownBorder.Visible = true
 				isOpen = true
-				btn.BackgroundColor3 = Color3.fromRGB(150, 150, 150)
-				btn.TextColor3 = Color3.fromRGB(185, 185, 185)
+				btn.BackgroundColor3 = selectedTheme.ButtonOn
+				btn.TextColor3 = selectedTheme.ButtonText
 				Window._activeDropdownOwner = {
-					btn = btn,
-					panel = Window._objects.DropdownBorder
+					btn = btn, panel = Window._objects.DropdownBorder,
+					close = function() isOpen = false end
 				}
 			end
 			local btnConn = btn.MouseButton1Click:Connect(function()
-				if (isOpen and Window._activeDropdownOwner and (Window._activeDropdownOwner.btn == btn)) then
-					if Window.CloseAllPanels then
-						Window.CloseAllPanels()
-					end
-					return
+				if isOpen and Window._activeDropdownOwner and Window._activeDropdownOwner.btn == btn then
+					Window:CloseAllPanels()
+				else
+					openPanel()
 				end
-				if Window.CloseAllPanels then
-					Window.CloseAllPanels()
-				end
-				openPanel()
 			end)
 			trackWindowConn(btnConn)
 			local searchConn = Window._objects.DropdownSearch:GetPropertyChangedSignal("Text"):Connect(function()
-				local q = tostring(Window._objects.DropdownSearch.Text or ""):lower()
-				for _, c in ipairs(Window._objects.DropdownItemArea:GetChildren()) do
-					if c:IsA("TextButton") then
-						local txt = c.Text:gsub("^%s+", ""):lower()
-						c.Visible = (q == "") or (string.find(txt, q) ~= nil)
+				local query = tostring(Window._objects.DropdownSearch.Text or ""):lower()
+				for _, child in ipairs(Window._objects.DropdownItemArea:GetChildren()) do
+					if child:IsA("TextButton") then
+						local text = child.Text:gsub("^%s+", ""):lower()
+						child.Visible = query == "" or string.find(text, query, 1, true) ~= nil
 					end
 				end
 			end)
 			trackWindowConn(searchConn)
-			if (opts.Flag and CONFIG.Enabled and (Window._config[opts.Flag] ~= nil)) then
-				local stored = Window._config[opts.Flag]
-				if (multiple and (type(stored) == "table")) then
-					for _, s in ipairs(stored) do
-						selections[s] = true
-					end
-				elseif (not multiple and (type(stored) == "table") and (#stored >= 1)) then
-					selections = {
-						stored[1]
-					}
-				elseif (not multiple and (type(stored) == "string")) then
-					selections = {
-						stored
-					}
-				end
+			trackWindowCleanup(disconnectItemConnections)
+			if opts.Flag and CONFIG.Enabled and Window._config[opts.Flag] ~= nil then
+				applySelection(Window._config[opts.Flag])
 			end
+			updateButtonText()
 			local obj = {
-				_frame = f,
-				_label = label,
-				_button = btn,
-				_options = options,
-				_multiple = multiple,
-				_selections = selections,
-				_isOpen = function()
-					return isOpen
-				end
+				_frame = f, _label = label, _button = btn, _options = options,
+				_multiple = multiple, _selections = selections,
+				_isOpen = function() return isOpen end
 			}
 			obj.Refresh = function(self, newList)
 				options = {}
-				for _, v in ipairs(newList or {}) do
-					table.insert(options, v)
+				if type(newList) == "table" then
+					for _, value in ipairs(newList) do table.insert(options, value) end
 				end
-				if self._multiple then
-					self._selections = {}
-				else
-					self._selections = {}
-				end
-				if (opts.Flag and CONFIG.Enabled) then
-					Window._config[opts.Flag] = self._selections
-					Window:SaveConfig()
-				end
+				self._options = options
+				local old = selectedList()
+				applySelection(old)
+				if isOpen then buildItems() end
+				saveSelection()
 			end
 			obj.Set = function(self, selection)
-				if self._multiple then
-					self._selections = {}
-					if (type(selection) == "table") then
-						for _, s in ipairs(selection) do
-							self._selections[s] = true
-						end
-					end
-					if (opts.Flag and CONFIG.Enabled) then
-						local outList = {}
-						for k, v in pairs(self._selections) do
-							if v then
-								table.insert(outList, k)
-							end
-						end
-						Window._config[opts.Flag] = outList
-						Window:SaveConfig()
-					end
-				else
-					if (type(selection) == "table") then
-						if (#selection >= 1) then
-							self._selections = {
-								selection[1]
-							}
-						else
-							self._selections = {}
-						end
-					elseif (type(selection) == "string") then
-						self._selections = {
-							selection
-						}
-					end
-					if (opts.Flag and CONFIG.Enabled) then
-						Window._config[opts.Flag] = self._selections
-						Window:SaveConfig()
-					end
-				end
+				applySelection(selection)
+				saveSelection()
+			end
+			obj.Get = function(self)
+				if multiple then return selectedList() end
+				return findOption(selections[1])
 			end
 			return obj
 		end
@@ -1421,107 +1420,85 @@ Hwanlib.CreateWindow = function(self, opts)
 			opts = opts or {}
 			local f = elementFrame()
 			local label = New("TextLabel", {
-				Parent = f,
-				BackgroundTransparency = 1,
-				Position = UDim2.new(0, LEFT_PAD, 0.18, 0),
-				Size = UDim2.new(0.45, 0, 0, 22),
-				Font = FONT,
-				Text = (opts.Title or opts.Name or "Keybind"),
-				TextColor3 = Color3.fromRGB(0, 0, 0),
-				TextSize = 16,
+				Parent = f, BackgroundTransparency = 1,
+				Position = UDim2.new(0, LEFT_PAD, 0.18, 0), Size = UDim2.new(0.45, 0, 0, 22),
+				Font = FONT, Text = opts.Title or opts.Name or "Keybind",
+				TextColor3 = Color3.fromRGB(0,0,0), TextSize = 16,
 				TextXAlignment = Enum.TextXAlignment.Left
 			})
 			local box = New("TextButton", {
-				Parent = f,
-				BackgroundColor3 = selectedTheme.ButtonDark,
-				BorderSizePixel = 0,
-				Position = UDim2.new(1, -BUTTON_W - RIGHT_PAD, 0.18, 0),
-				Size = UDim2.new(0, BUTTON_W, 0, 22),
-				Font = FONT,
-				Text = ((opts.Key and tostring(opts.Key)) or "..."),
-				TextColor3 = selectedTheme.ButtonText,
-				TextSize = 14,
-				AutoButtonColor = false
+				Parent = f, BackgroundColor3 = selectedTheme.ButtonDark, BorderSizePixel = 0,
+				Position = UDim2.new(1, -BUTTON_W - RIGHT_PAD, 0.18, 0), Size = UDim2.new(0, BUTTON_W, 0, 22),
+				Font = FONT, Text = tostring(opts.Key or "..."), TextColor3 = selectedTheme.ButtonText,
+				TextSize = 14, AutoButtonColor = false
 			})
-			New("UICorner", {
-				Parent = box,
-				CornerRadius = CORNER_RADIUS
-			})
+			New("UICorner", {Parent = box, CornerRadius = CORNER_RADIUS})
 			box.TextXAlignment = Enum.TextXAlignment.Center
 			box.TextTruncate = Enum.TextTruncate.AtEnd
-			if (opts.Flag and CONFIG.Enabled and Window._config[opts.Flag]) then
-				box.Text = tostring(Window._config[opts.Flag])
+			local function keyName(value)
+				if typeof(value) == "EnumItem" then return value.Name end
+				if type(value) == "string" then return value end
+				return nil
 			end
-			local function setKey(codeName)
-				box.Text = tostring(codeName)
-				if (opts.Flag and CONFIG.Enabled) then
-					Window._config[opts.Flag] = box.Text
-					Window:SaveConfig()
+			local currentKeyName = keyName(opts.Key)
+			if opts.Flag and CONFIG.Enabled and Window._config[opts.Flag] ~= nil then
+				currentKeyName = keyName(Window._config[opts.Flag]) or currentKeyName
+			end
+			local listening = false
+			local previousKeyName = currentKeyName
+			local function persistKey()
+				box.Text = currentKeyName or "None"
+				if opts.Flag and CONFIG.Enabled then
+					Window._config[opts.Flag] = currentKeyName or ""
+					Window:ScheduleSaveConfig()
 				end
 			end
-			box.MouseButton1Click:Connect(function()
-				local prevText = box.Text
-				box.Text = "..."
-				local waiting = true
-				local keyConn, outsideConn
-				keyConn = UserInputService.InputBegan:Connect(function(input, gameProcessed)
-					if (gameProcessed or not waiting) then
-						return
-					end
-					if (input.UserInputType == Enum.UserInputType.Keyboard) then
-						waiting = false
-						local codeName = (input.KeyCode and input.KeyCode.Name) or tostring(input.KeyCode)
-						setKey(codeName)
-						if opts.Callback then
-							safeCall(opts.Callback, input.KeyCode)
+			persistKey()
+			trackWindowConn(box.MouseButton1Click:Connect(function()
+				if Window._destroyed then return end
+				previousKeyName = currentKeyName
+				listening = true
+				box.Text = "Press a key..."
+			end))
+			local inputConn = UserInputService.InputBegan:Connect(function(input, gameProcessed)
+				if Window._destroyed then return end
+				if listening then
+					if input.UserInputType == Enum.UserInputType.Keyboard then
+						local newName = input.KeyCode and input.KeyCode.Name
+						if newName == "Escape" then
+							currentKeyName = previousKeyName
+						else
+							currentKeyName = newName ~= "Unknown" and newName or previousKeyName
 						end
-						if keyConn then
-							keyConn:Disconnect()
+						listening = false
+						persistKey()
+						if newName ~= "Escape" and currentKeyName and (opts.ChangedCallback or opts.OnChanged) then
+							safeCall(opts.ChangedCallback or opts.OnChanged, currentKeyName)
 						end
-						if outsideConn then
-							outsideConn:Disconnect()
-						end
-					end
-				end)
-				trackWindowConn(keyConn)
-				outsideConn = UserInputService.InputBegan:Connect(function(input, gameProcessed)
-					if not waiting then
-						return
-					end
-					if (input.UserInputType == Enum.UserInputType.MouseButton1) then
+					elseif input.UserInputType == Enum.UserInputType.MouseButton1 then
 						local mouse = UserInputService:GetMouseLocation()
-						local x, y = mouse.X, mouse.Y
-						local pos = box.AbsolutePosition
-						local sz = box.AbsoluteSize
-						local inside = (x >= pos.X) and (x <= (pos.X + sz.X)) and (y >= pos.Y) and (y <= (pos.Y + sz.Y))
-						if not inside then
-							box.Text = prevText or "..."
-							waiting = false
-							if keyConn then
-								keyConn:Disconnect()
-							end
-							if outsideConn then
-								outsideConn:Disconnect()
-							end
-						end
+						local pos, size = box.AbsolutePosition, box.AbsoluteSize
+						local inside = mouse.X >= pos.X and mouse.X <= pos.X + size.X and mouse.Y >= pos.Y and mouse.Y <= pos.Y + size.Y
+						if not inside then listening = false; persistKey() end
 					end
-				end)
-				trackWindowConn(outsideConn)
+					return
+				end
+				if gameProcessed then return end
+				if input.UserInputType == Enum.UserInputType.Keyboard and input.KeyCode and input.KeyCode.Name == currentKeyName then
+					if opts.Callback then safeCall(opts.Callback, input.KeyCode) end
+				end
 			end)
-			local obj = {
-				_frame = f,
-				_label = label,
-				_box = box
-			}
-			obj.Set = function(self, keyString)
-				if keyString then
-					box.Text = tostring(keyString)
-					if (opts.Flag and CONFIG.Enabled) then
-						Window._config[opts.Flag] = box.Text
-						Window:SaveConfig()
-					end
+			trackWindowConn(inputConn)
+			local obj = {_frame = f, _label = label, _box = box}
+			obj.Set = function(self, value)
+				local normalized = keyName(value)
+				if normalized then
+					currentKeyName = normalized
+					listening = false
+					persistKey()
 				end
 			end
+			obj.Get = function(self) return currentKeyName end
 			return obj
 		end
 		Tab.CreateTextBox = function(self, opts)
@@ -1561,26 +1538,26 @@ Hwanlib.CreateWindow = function(self, opts)
 			if (opts.Flag and CONFIG.Enabled and Window._config[opts.Flag]) then
 				box.Text = tostring(Window._config[opts.Flag])
 			end
-			box.FocusLost:Connect(function(enter)
+			trackWindowConn(box.FocusLost:Connect(function(enter)
 				if (opts.Callback and enter) then
 					safeCall(opts.Callback, box.Text)
 				end
 				if (opts.Flag and CONFIG.Enabled) then
 					Window._config[opts.Flag] = box.Text
-					Window:SaveConfig()
+					Window:ScheduleSaveConfig()
 				end
-			end)
+			end))
 			local obj = {
 				_frame = f,
 				_label = label,
 				_box = box
 			}
 			obj.Set = function(self, newText)
-				if newText then
+				if newText ~= nil then
 					box.Text = tostring(newText)
 					if (opts.Flag and CONFIG.Enabled) then
 						Window._config[opts.Flag] = box.Text
-						Window:SaveConfig()
+						Window:ScheduleSaveConfig()
 					end
 				end
 			end
@@ -1590,8 +1567,17 @@ Hwanlib.CreateWindow = function(self, opts)
 			opts = opts or {}
 			local minV = tonumber(opts.Min) or 0
 			local maxV = tonumber(opts.Max) or 100
+			if minV > maxV then
+				minV, maxV = maxV, minV
+				warn("HwanLib: Slider Min exceeded Max; bounds were swapped.")
+			end
 			local inc = tonumber(opts.Increment) or 1
+			if inc <= 0 then
+				inc = 1
+				warn("HwanLib: Slider Increment must be positive; using 1.")
+			end
 			local cur = tonumber(opts.CurrentValue) or minV
+			cur = math.clamp(cur, minV, maxV)
 			local f = elementFrame()
 			local label = New("TextLabel", {
 				Parent = f,
@@ -1703,7 +1689,7 @@ Hwanlib.CreateWindow = function(self, opts)
 				end
 				if (opts.Flag and CONFIG.Enabled) then
 					Window._config[opts.Flag] = cur
-					Window:SaveConfig()
+					Window:ScheduleSaveConfig()
 				end
 				if (opts.Callback and not skipCallback) then
 					safeCall(opts.Callback, cur)
@@ -1739,8 +1725,8 @@ Hwanlib.CreateWindow = function(self, opts)
 					setValueInternal(cur, true, true)
 				end
 			end
-			barFrame.InputBegan:Connect(handleInputBegan)
-			knob.InputBegan:Connect(handleInputBegan)
+			trackWindowConn(barFrame.InputBegan:Connect(handleInputBegan))
+			trackWindowConn(knob.InputBegan:Connect(handleInputBegan))
 			local inputChangedConn = UserInputService.InputChanged:Connect(handleInputChanged)
 			trackWindowConn(inputChangedConn)
 			local inputEndedConn = UserInputService.InputEnded:Connect(handleInputEnded)
@@ -1781,9 +1767,9 @@ Hwanlib.CreateWindow = function(self, opts)
 				end
 				return out
 			end
-			valueBox.Focused:Connect(function()
+			trackWindowConn(valueBox.Focused:Connect(function()
 				valueBox.Text = ""
-			end)
+			end))
 			local textChangedConn = valueBox:GetPropertyChangedSignal("Text"):Connect(function()
 				local txt = valueBox.Text or ""
 				local cleaned = sanitizeTextForNumber(txt)
@@ -1792,7 +1778,7 @@ Hwanlib.CreateWindow = function(self, opts)
 				end
 			end)
 			trackWindowConn(textChangedConn)
-			valueBox.FocusLost:Connect(function(enter)
+			trackWindowConn(valueBox.FocusLost:Connect(function(enter)
 				local raw = tostring(valueBox.Text or "")
 				local sanitized = sanitizeTextForNumber(raw)
 				if ((sanitized == "") or (sanitized == "-") or (sanitized == ".")) then
@@ -1814,7 +1800,7 @@ Hwanlib.CreateWindow = function(self, opts)
 				elseif (valueBox and (valueBox.Text ~= "...")) then
 					valueBox.Text = tostring(math.floor((cur * 100) + 0.5) / 100)
 				end
-			end)
+			end))
 			if (opts.Flag and CONFIG.Enabled and (Window._config[opts.Flag] ~= nil)) then
 				cur = tonumber(Window._config[opts.Flag]) or cur
 				setValueInternal(cur, true)
@@ -2106,15 +2092,9 @@ Hwanlib.CreateWindow = function(self, opts)
 				local hy = (1 - h) * (absHue.Y / scale)
 				hue_cursor.Position = UDim2.new(0, 0, 0, hy)
 			end
-			sv_frame:GetPropertyChangedSignal("AbsoluteSize"):Connect(updateCursors)
-			hue_frame:GetPropertyChangedSignal("AbsoluteSize"):Connect(updateCursors)
+			trackWindowConn(sv_frame:GetPropertyChangedSignal("AbsoluteSize"):Connect(updateCursors))
+			trackWindowConn(hue_frame:GetPropertyChangedSignal("AbsoluteSize"):Connect(updateCursors))
 			table.insert(Window._auxObjects, color_panel)
-			local conn_color_hb = RunService.Heartbeat:Connect(function()
-				if color_panel.Visible then
-					safeCall(updateCursors)
-				end
-			end)
-			trackWindowConn(conn_color_hb)
 			local function setSVFromCursor(px, py)
 				local absPos = sv_frame.AbsolutePosition
 				local absSize = sv_frame.AbsoluteSize
@@ -2134,7 +2114,7 @@ Hwanlib.CreateWindow = function(self, opts)
 						g,
 						b
 					}
-					Window:SaveConfig()
+					Window:ScheduleSaveConfig()
 				end
 				if opts.Callback then
 					safeCall(opts.Callback, col)
@@ -2159,7 +2139,7 @@ Hwanlib.CreateWindow = function(self, opts)
 						g,
 						b
 					}
-					Window:SaveConfig()
+					Window:ScheduleSaveConfig()
 				end
 				if opts.Callback then
 					safeCall(opts.Callback, col)
@@ -2212,7 +2192,7 @@ Hwanlib.CreateWindow = function(self, opts)
 				end
 			end)
 			trackWindowConn(hue_end_conn)
-			hex_box.FocusLost:Connect(function(enterPressed)
+			trackWindowConn(hex_box.FocusLost:Connect(function(enterPressed)
 				local text = tostring(hex_box.Text or "")
 				local c = hexToColor3(text)
 				if c then
@@ -2228,7 +2208,7 @@ Hwanlib.CreateWindow = function(self, opts)
 							g,
 							b
 						}
-						Window:SaveConfig()
+						Window:ScheduleSaveConfig()
 					end
 					if opts.Callback then
 						safeCall(opts.Callback, c)
@@ -2237,7 +2217,7 @@ Hwanlib.CreateWindow = function(self, opts)
 				else
 					hex_box.Text = rgbToHex(Color3.fromHSV(h, s, v))
 				end
-			end)
+			end))
 			local btnConn2 = btn.MouseButton1Click:Connect(function()
 				if (color_panel.Visible and Window._activeColorOwner and (Window._activeColorOwner.btn == btn)) then
 					if Window.CloseAllPanels then
@@ -2270,7 +2250,7 @@ Hwanlib.CreateWindow = function(self, opts)
 				}
 			end)
 			trackWindowConn(btnConn2)
-			Window._objects.Main:GetPropertyChangedSignal("AbsolutePosition"):Connect(function()
+			trackWindowConn(Window._objects.Main:GetPropertyChangedSignal("AbsolutePosition"):Connect(function()
 				if color_panel.Visible then
 					local pos = Window._objects.Main.AbsolutePosition
 					local size = Window._objects.Main.AbsoluteSize
@@ -2288,8 +2268,8 @@ Hwanlib.CreateWindow = function(self, opts)
 					local unscaledY = math.floor((finalY / scale) + 0.5)
 					color_panel.Position = UDim2.new(0, unscaledX, 0, unscaledY)
 				end
-			end)
-			Window._objects.Main:GetPropertyChangedSignal("AbsoluteSize"):Connect(function()
+			end))
+			trackWindowConn(Window._objects.Main:GetPropertyChangedSignal("AbsoluteSize"):Connect(function()
 				if color_panel.Visible then
 					local pos = Window._objects.Main.AbsolutePosition
 					local size = Window._objects.Main.AbsoluteSize
@@ -2307,20 +2287,20 @@ Hwanlib.CreateWindow = function(self, opts)
 					local unscaledY = math.floor((finalY / scale) + 0.5)
 					color_panel.Position = UDim2.new(0, unscaledX, 0, unscaledY)
 				end
-			end)
+			end))
 			local obj = {
 				_frame = f,
 				_label = label,
 				_button = btn,
 				_preview = previewBox
 			}
-			obj.Set = function(self, color3)
+			obj.Set = function(self, color3, skipCallback, skipSave)
 				if (typeof(color3) == "Color3") then
 					h, s, v = Color3.toHSV(color3)
 					sv_frame.BackgroundColor3 = Color3.fromHSV(h, 1, 1)
 					previewBox.BackgroundColor3 = color3
 					hex_box.Text = rgbToHex(color3)
-					if (opts.Flag and CONFIG.Enabled) then
+					if (opts.Flag and CONFIG.Enabled and not skipSave) then
 						local r = math.floor((color3.R * 255) + 0.5)
 						local g = math.floor((color3.G * 255) + 0.5)
 						local b = math.floor((color3.B * 255) + 0.5)
@@ -2329,26 +2309,26 @@ Hwanlib.CreateWindow = function(self, opts)
 							g,
 							b
 						}
-						Window:SaveConfig()
+						Window:ScheduleSaveConfig()
 					end
 					updateCursors()
-					if opts.Callback then
+					if opts.Callback and not skipCallback then
 						safeCall(opts.Callback, color3)
 					end
 				end
 			end
-			obj:Set(initial)
+			obj:Set(initial, true, true)
 			if (opts.Flag and CONFIG.Enabled and Window._config[opts.Flag]) then
 				local stored = Window._config[opts.Flag]
 				if ((type(stored) == "table") and (#stored == 3)) then
-					obj:Set(Color3.fromRGB(stored[1], stored[2], stored[3]))
+					obj:Set(Color3.fromRGB(stored[1], stored[2], stored[3]), true, true)
 				end
 			end
 			return obj
 		end
-		tabBtn.MouseButton1Click:Connect(function()
+		trackWindowConn(tabBtn.MouseButton1Click:Connect(function()
 			Tab:Activate()
-		end)
+		end))
 		table.insert(tabs, Tab)
 		if (#tabs == 1) then
 			Tab:Activate()
@@ -2497,7 +2477,7 @@ Hwanlib.CreateWindow = function(self, opts)
 		end
 	end
 	local function processQueue()
-		while (#NotifyManager.active < NotifyManager.maxActive) and (#NotifyManager.queue > 0) do
+		while not Window._destroyed and (#NotifyManager.active < NotifyManager.maxActive) and (#NotifyManager.queue > 0) do
 			local opts = table.remove(NotifyManager.queue, 1)
 			local gui = createNotifyGui(opts)
 			gui.Title.Text = opts.Title or gui.Title.Text
@@ -2528,7 +2508,7 @@ Hwanlib.CreateWindow = function(self, opts)
 				Size = UDim2.new(0, 0, 1, 0)
 			})
 			fillTween.Completed:Connect(function()
-				if finished then
+				if Window._destroyed or finished then
 					return
 				end
 				finished = true
@@ -2549,7 +2529,7 @@ Hwanlib.CreateWindow = function(self, opts)
 			end)
 			fillTween:Play()
 			gui.Close.MouseButton1Click:Connect(function()
-				if finished then
+				if Window._destroyed or finished then
 					return
 				end
 				finished = true
@@ -2572,6 +2552,7 @@ Hwanlib.CreateWindow = function(self, opts)
 		end
 	end
 	Window.Notify = function(self, opts)
+		if Window._destroyed then return false end
 		if (type(opts) == "string") then
 			opts = {
 				Content = opts
@@ -2580,10 +2561,23 @@ Hwanlib.CreateWindow = function(self, opts)
 		opts = opts or {}
 		opts.Title = opts.Title or "Title"
 		opts.Content = opts.Content or "Content"
-		opts.Duration = ((type(opts.Duration) == "number") and opts.Duration) or 4
+		local requestedDuration = tonumber(opts.Duration) or 4
+		if requestedDuration ~= requestedDuration or requestedDuration == math.huge or requestedDuration == -math.huge then
+			requestedDuration = 4
+		end
+		opts.Duration = math.clamp(requestedDuration, 0.1, 600)
 		table.insert(NotifyManager.queue, opts)
 		processQueue()
+		return true
 	end
+	Window._notifyCleanup = function()
+		for _, notification in ipairs(NotifyManager.active) do
+			if notification.Border then safeCall(notification.Border.Destroy, notification.Border) end
+		end
+		table.clear(NotifyManager.active)
+		table.clear(NotifyManager.queue)
+	end
+	trackWindowCleanup(Window._notifyCleanup)
 	if Window._objects.ScreenGui then
 		trackWindowConn(Window._objects.ScreenGui.AncestryChanged:Connect(function()
 			if not Window._objects.ScreenGui:IsDescendantOf(game) then
@@ -2593,6 +2587,8 @@ Hwanlib.CreateWindow = function(self, opts)
 		end))
 	end
 	local function createShowButton()
+		if Window._destroyed then return end
+		LocalPlayer = LocalPlayer or refreshLocalPlayer()
 		local pg = LocalPlayer and LocalPlayer:FindFirstChild("PlayerGui")
 		if not pg then
 			return
@@ -2603,6 +2599,7 @@ Hwanlib.CreateWindow = function(self, opts)
 		local tg = New("ScreenGui", {
 			Name = "hwanlib_toggle",
 			Parent = pg,
+			ResetOnSpawn = false,
 			ZIndexBehavior = Enum.ZIndexBehavior.Sibling
 		})
 		if sg:FindFirstChildOfClass("UIScale") then
@@ -2672,18 +2669,33 @@ Hwanlib.CreateWindow = function(self, opts)
 		local targetOffset = startOffset
 		local DRAG_THRESHOLD = 6
 		local moved = false
-		local moveConn, endConn
-		local smoothingFactor = 0.18
-		local smoothConn = RunService.Heartbeat:Connect(function(dt)
-			if (not outer or not outer.Parent) then
-				return
-			end
-			local cur = Vector2.new(outer.Position.X.Offset, outer.Position.Y.Offset)
-			local newX = cur.X + ((targetOffset.X - cur.X) * smoothingFactor)
-			local newY = cur.Y + ((targetOffset.Y - cur.Y) * smoothingFactor)
-			outer.Position = UDim2.new(outer.Position.X.Scale, math.floor(newX + 0.5), outer.Position.Y.Scale, math.floor(newY + 0.5))
-		end)
-		trackWindowConn(smoothConn)
+		local moveConn, endConn, smoothConn
+		local function stopToggleDragConnections()
+			if moveConn then safeCall(moveConn.Disconnect, moveConn) end
+			if endConn then safeCall(endConn.Disconnect, endConn) end
+			if smoothConn then safeCall(smoothConn.Disconnect, smoothConn) end
+			moveConn, endConn, smoothConn = nil, nil, nil
+		end
+		trackWindowCleanup(stopToggleDragConnections)
+		local function startToggleSmoothing()
+			if smoothConn or Window._destroyed then return end
+			smoothConn = RunService.Heartbeat:Connect(function(dt)
+				if Window._destroyed or not outer.Parent then
+					stopToggleDragConnections()
+					return
+				end
+				local curX, curY = outer.Position.X.Offset, outer.Position.Y.Offset
+				local alpha = 1 - math.exp(-12 * math.max(dt or 0, 0))
+				local newX = curX + (targetOffset.X - curX) * alpha
+				local newY = curY + (targetOffset.Y - curY) * alpha
+				if not toggleDragging and inputTypeActive == nil and math.abs(targetOffset.X - newX) < 0.5 and math.abs(targetOffset.Y - newY) < 0.5 then
+					outer.Position = UDim2.new(outer.Position.X.Scale, targetOffset.X, outer.Position.Y.Scale, targetOffset.Y)
+					stopToggleDragConnections()
+				else
+					outer.Position = UDim2.new(outer.Position.X.Scale, math.floor(newX + 0.5), outer.Position.Y.Scale, math.floor(newY + 0.5))
+				end
+			end)
+		end
 		local function toggleMainVisibility()
 			safeCall(function()
 				if (main and main.Parent and main.Visible) then
@@ -2730,6 +2742,7 @@ Hwanlib.CreateWindow = function(self, opts)
 				local delta = i.Position - dragStart
 				if (not toggleDragging and ((math.abs(delta.X) + math.abs(delta.Y)) > DRAG_THRESHOLD)) then
 					toggleDragging = true
+					startToggleSmoothing()
 				end
 				if toggleDragging then
 					local desired = Vector2.new(startOffset.X + delta.X, startOffset.Y + delta.Y)
@@ -2737,33 +2750,26 @@ Hwanlib.CreateWindow = function(self, opts)
 					moved = true
 				end
 			end)
-			trackWindowConn(moveConn)
 			endConn = UserInputService.InputEnded:Connect(function(i)
 				if ((i.UserInputType == input.UserInputType) or ((input.UserInputType == Enum.UserInputType.MouseButton1) and (i.UserInputType == Enum.UserInputType.MouseMovement))) then
 					task.defer(function()
-						if moveConn then
-							moveConn:Disconnect()
-							moveConn = nil
-						end
-						if endConn then
-							endConn:Disconnect()
-							endConn = nil
-						end
+						if moveConn then safeCall(moveConn.Disconnect, moveConn); moveConn = nil end
+						if endConn then safeCall(endConn.Disconnect, endConn); endConn = nil end
 						local wasMoved = moved
 						toggleDragging = false
 						inputTypeActive = nil
 						moved = false
-						targetOffset = Vector2.new(outer.Position.X.Offset, outer.Position.Y.Offset)
 						if not wasMoved then
+							targetOffset = Vector2.new(outer.Position.X.Offset, outer.Position.Y.Offset)
+							stopToggleDragConnections()
 							toggleMainVisibility()
 						end
 					end)
 				end
 			end)
-			trackWindowConn(endConn)
 		end
-		outer.InputBegan:Connect(beginInput)
-		logo_image.InputBegan:Connect(beginInput)
+		trackWindowConn(outer.InputBegan:Connect(beginInput))
+		trackWindowConn(logo_image.InputBegan:Connect(beginInput))
 		Window._toggleGui = tg
 		table.insert(Window._auxObjects, tg)
 	end
@@ -2881,8 +2887,6 @@ Hwanlib.CreateWindow = function(self, opts)
 		loading_root.Position = UDim2.new(0.5, 0, 0.5, 0)
 	end
 	centerLoading()
-	local camConn = workspace.CurrentCamera:GetPropertyChangedSignal("ViewportSize"):Connect(centerLoading)
-	trackWindowConn(camConn)
 	local sg_us = sg:FindFirstChildOfClass("UIScale")
 	if sg_us then
 		local usconn = sg_us:GetPropertyChangedSignal("Scale"):Connect(centerLoading)
@@ -2890,66 +2894,65 @@ Hwanlib.CreateWindow = function(self, opts)
 	end
 	table.insert(Window._auxObjects, loading_root)
 	local duration = LOADING_DURATION
-	local percentUpdaterConn = RunService.Heartbeat:Connect(function()
-		local frac = 0
-		local sx = fill_1.Size and fill_1.Size.X and fill_1.Size.X.Scale
-		if (sx and (type(sx) == "number")) then
-			frac = math.clamp(sx, 0, 1)
-		else
-			local bgW = bar_1.AbsoluteSize.X
-			local fillW = fill_1.AbsoluteSize.X
-			if (bgW and (bgW > 0)) then
-				frac = math.clamp(fillW / bgW, 0, 1)
-			end
+	local lastPercent = -1
+	local function updateLoadingPercent()
+		if Window._destroyed or not fill_1.Parent then return end
+		local fraction = 0
+		local bgWidth = bar_1.AbsoluteSize.X
+		local fillWidth = fill_1.AbsoluteSize.X
+		if bgWidth > 0 then fraction = math.clamp(fillWidth / bgWidth, 0, 1) end
+		local percent = math.floor(fraction * 100 + 0.5)
+		if percent ~= lastPercent then
+			lastPercent = percent
+			status_label.Text = tostring(percent) .. "%"
 		end
-		local px = math.floor((frac * 100) + 0.5)
-		status_label.Text = tostring(px) .. "%"
-	end)
-	trackWindowConn(percentUpdaterConn)
+	end
+	trackWindowConn(fill_1:GetPropertyChangedSignal("Size"):Connect(updateLoadingPercent))
+	updateLoadingPercent()
 	local function startProgressTween()
 		if (not bar_1.AbsoluteSize or (bar_1.AbsoluteSize.X <= 0)) then
-			local connWait = RunService.Heartbeat:Connect(function()
-				if (bar_1.AbsoluteSize and (bar_1.AbsoluteSize.X > 0)) then
+			local connWait
+			connWait = RunService.Heartbeat:Connect(function()
+				if Window._destroyed then
+					connWait:Disconnect()
+					return
+				end
+				if bar_1.AbsoluteSize.X > 0 then
 					connWait:Disconnect()
 					startProgressTween()
 				end
 			end)
+			trackWindowConn(connWait)
 			return
 		end
 		fill_1.Size = UDim2.new(0, 0, 1, 0)
-		local progTween = TweenService:Create(fill_1, TweenInfo.new(duration, Enum.EasingStyle.Linear, Enum.EasingDirection.Out), {
+		local progTween = trackWindowTween(TweenService:Create(fill_1, TweenInfo.new(math.max(0, duration), Enum.EasingStyle.Linear, Enum.EasingDirection.Out), {
 			Size = UDim2.new(1, 0, 1, 0)
-		})
-		progTween:Play()
-		progTween.Completed:Connect(function()
+		}))
+		local progressCompletedConn
+		progressCompletedConn = progTween.Completed:Connect(function(playbackState)
+			if progressCompletedConn then progressCompletedConn:Disconnect() end
+			if playbackState ~= Enum.PlaybackState.Completed or Window._destroyed then return end
 			task.defer(function()
 				task.wait(1)
+				if Window._destroyed then return end
 				safeCall(function()
-					if (loading_root and loading_root.Parent) then
-						loading_root:Destroy()
-					end
+					if loading_root and loading_root.Parent then loading_root:Destroy() end
 				end)
 				createShowButton()
-				safeCall(function()
-					main.Visible = true
-				end)
-				safeCall(function()
-					Window:Notify({
-						Title = (LOADING_TITLE or opts.Title or "Title"),
-						Content = "Successfully loaded!",
-						Duration = 2
-					})
-				end)
+				if main and main.Parent then main.Visible = true end
+				Window:Notify({Title = LOADING_TITLE or opts.Title or "Title", Content = "Successfully loaded!", Duration = 2})
 			end)
 		end)
+		trackWindowConn(progressCompletedConn)
+		progTween:Play()
+
 	end
 	startProgressTween()
-	close_button.MouseButton1Click:Connect(function()
-		safeCall(function()
-			Window:Destroy()
-		end)
-	end)
-	minimize_button.MouseButton1Click:Connect(function()
+	trackWindowConn(close_button.MouseButton1Click:Connect(function()
+		if not Window._destroyed then Window:Destroy() end
+	end))
+	trackWindowConn(minimize_button.MouseButton1Click:Connect(function()
 		if (Window._toggleGui and Window._toggleGui.Parent) then
 			if sg then
 				sg.Enabled = false
@@ -2962,11 +2965,11 @@ Hwanlib.CreateWindow = function(self, opts)
 		end
 		main.Visible = false
 		createShowButton()
-	end)
+	end))
 	if opts.ToggleUIKeybind then
 		local expected = tostring(opts.ToggleUIKeybind)
 		local keyToggleConn = UserInputService.InputBegan:Connect(function(input, gameProcessed)
-			if gameProcessed then
+			if Window._destroyed or gameProcessed then
 				return
 			end
 			if ((input.UserInputType == Enum.UserInputType.Keyboard) and input.KeyCode and (input.KeyCode.Name == expected)) then
