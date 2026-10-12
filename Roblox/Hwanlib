@@ -167,8 +167,8 @@ HWIDFunctions.GetEncryptedHWID = function(self)
 	local encrypted = string.format("%.2f-%06d", sqrtPart, numPart)
 	return encrypted
 end
-Hwan.HWID = HWIDFunctions
-local DEFAULT = {Width=300,Height=459,Title="HWAN HUB",Subtitle="Subtitle",ShowToggleIcon=true,AntiAFK=true,HWIDSystem=true,HWIDSettings={Title="HWAN HUB",Subtitle="VERIFY SYSTEM",FileName="hwanhub_status",SaveStatus=true,HWIDLock=true,HWIDUrl="https://raw.githubusercontent.com/tr-nawyh/Hwan-Project/main/Roblox%20/HWID",AutoRefresh=true,RefreshInterval=5},Theme="Dark",Corner=UDim.new(0, 12),ToggleKey=Enum.KeyCode.LeftAlt,ConfigurationSaving={Enabled=false,FolderName=nil,FileName=nil}}
+Hwan. = Functions
+local DEFAULT = {Width=300,Height=459,Title="HWAN HUB",Subtitle="Subtitle",ShowToggleIcon=true,AntiAFK=true,System=true,Settings={Title="HWAN HUB",Subtitle="VERIFY SYSTEM",FileName="hwanhub_status",SaveStatus=true,HWIDLock=false,HWIDUrl="https://raw.githubusercontent.com/tr-nawyh/Hwan-Project/main/Roblox%20/HWID",AutoRefresh=true,RefreshInterval=5},Theme="Dark",Corner=UDim.new(0, 12),ToggleKey=Enum.KeyCode.LeftAlt,ConfigurationSaving={Enabled=false,FolderName=nil,FileName=nil}}
 Hwan.CreateWindow = function(self, opts)
 	opts = opts or {}
 	if _G.Hwan then
