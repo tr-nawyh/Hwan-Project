@@ -1,4 +1,4 @@
--- Hwanlib - v1.0.1.0 (stability patch)
+-- Hwanlib - v1.0.1.1 (dropdown positioning and selection fix)
 local Hwanlib = {}
 Hwanlib.__index = Hwanlib
 local Players = game:GetService("Players")
@@ -900,30 +900,57 @@ end
 		end))
 	end
 	local function positionDropdown()
-		local mainObj = Window._objects.Main
-		if not mainObj then
+		local mainObj = Window._objects and Window._objects.Main
+		local panel = Window._objects and Window._objects.DropdownBorder
+		if not mainObj or not panel or Window._destroyed then
 			return
 		end
-		local pos, size = mainObj.AbsolutePosition, mainObj.AbsoluteSize
+
 		local sgLocal = Window._objects.ScreenGui
 		local scale = 1
 		if sgLocal then
-			local us = sgLocal:FindFirstChildOfClass("UIScale")
-			if (us and us.Scale) then
-				scale = us.Scale
+			local uiScale = sgLocal:FindFirstChildOfClass("UIScale")
+			if uiScale and type(uiScale.Scale) == "number" and uiScale.Scale > 0 then
+				scale = uiScale.Scale
 			end
 		end
-		local finalX = pos.X + size.X + 12
-		local finalY = pos.Y
-		local unscaledX = math.floor((finalX / scale) + 0.5)
-		local unscaledY = math.floor((finalY / scale) + 0.5)
+
+		-- AbsolutePosition/AbsoluteSize are screen-pixel values; convert the
+		-- target back to ScreenGui offset units when UIScale is present.
+		local mainPos = mainObj.AbsolutePosition
+		local mainSize = mainObj.AbsoluteSize
+		local panelSize = panel.AbsoluteSize
+		local panelWidth = panelSize.X
+		local panelHeight = panelSize.Y
+		if panelWidth <= 0 then panelWidth = panel.Size.X.Offset * scale end
+		if panelHeight <= 0 then panelHeight = panel.Size.Y.Offset * scale end
+
+		local camera = workspace.CurrentCamera
+		local viewport = camera and camera.ViewportSize or Vector2.new(800, 600)
+		local margin = 8
+		local gap = 12
+		local rightX = mainPos.X + mainSize.X + gap
+		local leftX = mainPos.X - panelWidth - gap
+		local x
+
+		-- Prefer the right side; use the left if the panel would be clipped.
+		-- On very narrow viewports, clamp to the visible area as a fallback.
+		if rightX + panelWidth <= viewport.X - margin then
+			x = rightX
+		elseif leftX >= margin then
+			x = leftX
+		else
+			x = math.clamp(rightX, margin, math.max(margin, viewport.X - panelWidth - margin))
+		end
+
+		local y = math.clamp(mainPos.Y, margin, math.max(margin, viewport.Y - panelHeight - margin))
+		local targetPosition = UDim2.new(
+			0, math.floor((x / scale) + 0.5),
+			0, math.floor((y / scale) + 0.5)
+		)
+
 		safeCall(function()
-			if (Window._objects and Window._objects.DropdownBorder) then
-				Window._objects.DropdownBorder.Position = UDim2.new(0, unscaledX, 0, unscaledY)
-			end
-			if dropdown_panel then
-				dropdown_panel.Position = UDim2.new(0, unscaledX, 0, unscaledY)
-			end
+			panel.Position = targetPosition
 		end)
 	end
 	local conn_pos1 = main:GetPropertyChangedSignal("AbsolutePosition"):Connect(positionDropdown)
@@ -1345,7 +1372,13 @@ end
 						if multiple then
 							selections[key] = not selections[key] and true or nil
 						else
-							clearSelections(); selections[1] = key
+							-- Clicking the current single selection again clears it.
+							if selections[1] == key then
+								clearSelections()
+							else
+								clearSelections()
+								selections[1] = key
+							end
 						end
 						updateButtonText(); syncItemVisuals(); saveSelection(); invokeCallback()
 					end))
@@ -1366,6 +1399,13 @@ end
 					btn = btn, panel = Window._objects.DropdownBorder,
 					close = function() isOpen = false end
 				}
+				-- Place the panel on the first open; don't wait for a drag event.
+				positionDropdown()
+				task.defer(function()
+					if not Window._destroyed and isOpen and Window._objects.DropdownBorder.Visible then
+						positionDropdown()
+					end
+				end)
 			end
 			local btnConn = btn.MouseButton1Click:Connect(function()
 				if isOpen and Window._activeDropdownOwner and Window._activeDropdownOwner.btn == btn then
